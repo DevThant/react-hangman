@@ -2,7 +2,6 @@
   width: 400px;
   color: black;
   text-align: center;
-  zoom: 1.3;
 }
 
 .Hangman img {
@@ -31,6 +30,8 @@
   margin-top: 0;
 }
 
+
+
 .Hangman button {
   border: none;
   font-family: inherit;
@@ -45,6 +46,21 @@
   box-shadow: 0 6px #ff9800;
   border-radius: 5px;
   padding-top: 4px;
+}
+
+#Hangman-restart {
+  text-align: center;
+  display: inline-block;
+  width: auto;
+  margin: 5px 2px 2px 2px;
+  letter-spacing: 1px;
+  outline: none;
+  background: #ffc107;
+  color: #fff;
+  box-shadow: 0 6px #ff9800;
+  border-radius: 5px;
+  padding-top: 4px;
+
 }
 
 .Hangman button:hover {
