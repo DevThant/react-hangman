@@ -64,23 +64,28 @@ class Hangman extends Component {
 
   /** render: render game */
   render() {
-    const { nWrong } = this.state;
+    const {nWrong, answer} = this.state;
+    const {maxWrong, images} = this.props
+    const gameover = nWrong >= maxWrong
+    const isWinner = this.guessedWord().join("") === this.state.answer
+    const altText = `${nWrong}/${maxWrong} guesses`
     return (
       <div className="Hangman">
         <h1>Hangman</h1>
-        <img src={this.props.images[nWrong]} alt={`${nWrong} guess`} />
+        <img src={images[nWrong]} alt={altText} />
         <p className="Hangman-wrong">Number of Wrong Guesses : {nWrong}</p>
-        <p className="Hangman-word">{this.guessedWord()}</p>
-        {nWrong < this.props.maxWrong ? (
-          <p className="Hangman-btns">{this.generateButtons()}</p>
-        ) : (
+        <p className="Hangman-word">
+          {gameover ? answer : this.guessedWord()}
+        </p>
+        {gameover ? (
           <div>
             <p>Hanged!</p>
-            <p>Answer: {this.state.answer}</p>
             <button id="Hangman-restart" onClick={this.handleRestart}>
               Restart
             </button>
           </div>
+        ): (
+         isWinner ? <p>You Win</p> :  <p className="Hangman-btns">{this.generateButtons()}</p>
         )}
       </div>
     );
