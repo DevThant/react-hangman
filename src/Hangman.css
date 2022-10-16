@@ -50,9 +50,10 @@
 
 #Hangman-restart {
   text-align: center;
-  display: inline-block;
+  display: block;
   width: auto;
-  margin: 5px 2px 2px 2px;
+  margin-left: auto;
+  margin-right: auto;
   letter-spacing: 1px;
   outline: none;
   background: #ffc107;
