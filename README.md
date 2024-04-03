@@ -134,7 +134,7 @@ export default {
 </style>
       In the above App.vue:The mounted hook establishes the socket connection and sets up the listener for the statusChanged event, showing a toast notification whenever the event is received.The showToast method is defined to create and display the toast element.The <style> tag contains basic styling for the toast notification.Remember to replace SocketioService.setupSocketConnection(); with the correct logic to handle cases where the user might not be authenticated, if your application requires authentication.With this setup, no matter where the user navigates in your application, they will receive toast notifications whenever the statusChanged event is emitted from your server.
 
-
+```
 trigger:
 - main
 
@@ -225,7 +225,8 @@ stages:
       DB_HOST: $(STAGING_DB_HOST)
       JWT_SECRET: $(auth_jwt_secret)
     # Deployment steps follow...
-
+```
+```
 "scripts": {
   "clean": "rm -rf dist",
   "build": "babel src -d dist",
@@ -263,7 +264,7 @@ stages:
         DB_NAME: $(STAGING_DB_NAME)
         DB_HOST: $(STAGING_DB_HOST)
 
-
+```
 
 
 ------------------------
