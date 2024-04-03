@@ -345,3 +345,52 @@ $SqlCmd = "USE [master]; ALTER DATABASE [$dbName] SET Single_User WITH Rollback 
 Invoke-Sqlcmd -ServerInstance $serverName -Query $SqlCmd
 Write-Host "Restore completed: $dbName from $backupFilePath"
 ```
+
+Yes, the issue is likely related to how changes are detected and handled within your save method. Specifically, the condition if (!isEqual(this.oldItem, this.editedItem)) checks if there are differences between this.oldItem and this.editedItem, but it doesn't consider changes to userIds, because userIds are not part of this.editedItem. Since userIds is managed separately from this.editedItem, changes to the selected users won't trigger the if condition, and as a result, the onUpdate(item) method won't be called for changes that only involve userIds.
+
+Here's how you can address this:
+
+Include User IDs in Change Detection
+Modify the condition in your save method to also check if userIds have changed, in addition to changes in this.editedItem. To do this, you can compare the current userIds with the userIds that were present when you first opened the item for editing.
+
+You'll need to store the original userIds in this.oldItem or in a separate data property when you open an item for editing. Then, in the save method, check if this.userIds differs from the original set of user IDs.
+
+First, when opening an item for editing, save the original userIds:
+
+```javascript
+editItem(item) {
+  this.oldItem = { ...item, userIds: [...this.userIds] };
+  // rest of your code
+}
+```
+Then, update your save method to consider changes to userIds. You might need to implement a method to compare the old and new userIds arrays since simple equality checks won't work for arrays. Here's an example approach, using a simple array comparison function assuming userIds are simple values (like strings or numbers):
+
+```javascript
+// Helper function to compare two arrays
+function arraysEqual(a, b) {
+  if (a.length !== b.length) return false;
+  return a.sort().every((val, index) => val === b.sort()[index]);
+}
+
+async save() {
+  this.$refs.crudForm.validate();
+  if (this.valid) {
+    let item = { ...this.editedItem, userIds: this.userIds };
+    const userIdsChanged = !arraysEqual(this.userIds, this.oldItem.userIds || []);
+    
+    if (this.editedIndex > -1) {
+      if (!isEqual(this.oldItem, this.editedItem) || userIdsChanged) {
+        item.edited = !this.editedItem.added;
+        item.deleted = false;
+        await this.onUpdate(item);
+      }
+    } else {
+      item.added = true;
+      await this.onCreate(item);
+    }
+    this.close();
+  }
+}
+
+```
+This approach involves a helper function, arraysEqual, to determine if userIds have changed. The save method now checks if either this.editedItem has changed compared to this.oldItem or if there's a change in userIds, ensuring that updates to user associations trigger the PUT request as intended.
