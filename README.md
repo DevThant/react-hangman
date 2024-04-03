@@ -282,4 +282,66 @@ Replace 123 with your PR number. You can choose --merge, --rebase, or --squash b
 
 
 
+Creating a shell script for backing up and restoring SQL Server databases on Windows requires using SQL Server Management Studio (SSMS) commands or SQLCMD utility commands within a batch file (.bat) or PowerShell script, rather than a Unix-style shell script. SQL Server doesn't support .sh scripts directly because it's a Linux/Unix format. However, PowerShell or .bat scripts can achieve the same result on Windows.Below are examples of how you can achieve backup and restore functionality using PowerShell scripts, which are more powerful and versatile on Windows platforms compared to traditional .bat files.Backup ScriptThis PowerShell script performs a backup of a SQL Server database to a specified directory with a timestamp in the filename.Save this script as backup.ps1:# backup.ps1
+Param(
+    [string]$serverName = "YourServerName",
+    [string]$dbName = "YourDatabaseName"
+)
 
+$timestamp = Get-Date -Format "yyyyMMddHHmmss"
+$backupFolder = "C:\backups\manual"
+$backupFileName = "$dbName" + "_" + "$timestamp" + ".bak"
+$backupFilePath = Join-Path -Path $backupFolder -ChildPath $backupFileName
+
+$SqlCmd = "BACKUP DATABASE [$dbName] TO DISK = N'$backupFilePath' WITH NOFORMAT, NOINIT, NAME = N'$dbName-Full Database Backup', SKIP, NOREWIND, NOUNLOAD, STATS = 10"
+
+Invoke-Sqlcmd -ServerInstance $serverName -Query $SqlCmd
+Write-Host "Backup completed: $backupFilePath"
+To run the script, open PowerShell as an administrator, navigate to the directory containing the script, and run:.\backup.ps1 -serverName "YourServer" -dbName "YourDB"
+Make sure to adjust $serverName and $dbName parameters accordingly.Restore ScriptThis PowerShell script restores a SQL Server database from a specified backup file.Save this script as restore.ps1:# restore.ps1
+Param(
+    [string]$serverName = "YourServerName",
+    [string]$dbName = "YourDatabaseName",
+    [string]$backupFilePath = "C:\backups\manual\YourBackupFile.bak"
+)
+
+$SqlCmd = "USE [master]; ALTER DATABASE [$dbName] SET Single_User WITH Rollback Immediate; RESTORE DATABASE [$dbName] FROM DISK = N'$backupFilePath' WITH FILE = 1, NOUNLOAD, REPLACE, STATS = 5; ALTER DATABASE [$dbName] SET Multi_User;"
+
+Invoke-Sqlcmd -ServerInstance $serverName -Query $SqlCmd
+Write-Host "Restore completed: $dbName from $backupFilePath"
+To run the script, open PowerShell as an administrator, navigate to the directory containing the script, and run:.\restore.ps1 -serverName "YourServer" -dbName "YourDB" -backupFilePath "C:\path\to\your\backup.bak"
+Adjust the $serverName, $dbName, and $backupFilePath parameters as needed.Running PowerShell ScriptsTo run these PowerShell scripts, you might need to change your PowerShell execution policy. You can do this by running PowerShell as an Administrator and executing the following command:Set-ExecutionPolicy RemoteSigned
+This command allows PowerShell to run scripts that are written on the local computer and signed scripts from the internet.Always test these scripts in a development environment before using them in production to ensure they work as expected with your setup.
+
+
+```
+# backup.ps1
+Param(
+    [string]$serverName = "YourServerName",
+    [string]$dbName = "YourDatabaseName"
+)
+
+$timestamp = Get-Date -Format "yyyyMMddHHmmss"
+$backupFolder = "C:\backups\manual"
+$backupFileName = "$dbName" + "_" + "$timestamp" + ".bak"
+$backupFilePath = Join-Path -Path $backupFolder -ChildPath $backupFileName
+
+$SqlCmd = "BACKUP DATABASE [$dbName] TO DISK = N'$backupFilePath' WITH NOFORMAT, NOINIT, NAME = N'$dbName-Full Database Backup', SKIP, NOREWIND, NOUNLOAD, STATS = 10"
+
+Invoke-Sqlcmd -ServerInstance $serverName -Query $SqlCmd
+Write-Host "Backup completed: $backupFilePath"
+```
+
+```
+# restore.ps1
+Param(
+    [string]$serverName = "YourServerName",
+    [string]$dbName = "YourDatabaseName",
+    [string]$backupFilePath = "C:\backups\manual\YourBackupFile.bak"
+)
+
+$SqlCmd = "USE [master]; ALTER DATABASE [$dbName] SET Single_User WITH Rollback Immediate; RESTORE DATABASE [$dbName] FROM DISK = N'$backupFilePath' WITH FILE = 1, NOUNLOAD, REPLACE, STATS = 5; ALTER DATABASE [$dbName] SET Multi_User;"
+
+Invoke-Sqlcmd -ServerInstance $serverName -Query $SqlCmd
+Write-Host "Restore completed: $dbName from $backupFilePath"
+```
