@@ -573,3 +573,78 @@ In each of these examples, the models are defined with their own fields and then
 
 Remember, after defining these associations, you may need to adjust your queries in the services or controllers to include or join with these new models as needed. This ensures that when you fetch a Program, you also retrieve its associated locations, objectives, target audiences, or resources as necessary.
 
+In Sequelize, enum types can be defined directly within the model attributes to enforce a specific set of values for a field. Let’s say you want to introduce an attribute in the Program model that represents the status of a program, with specific allowable values such as “Planning”, “Active”, “Completed”, and “Cancelled”. You would define this as an enum type.
+
+Here are examples of how you could incorporate enum types into the models I previously described, including a direct addition to the Program model:
+
+Adding Enum to Program Model
+
+For the Program model, you might add a status attribute that uses an enum:
+
+status: {
+  type: DataTypes.ENUM,
+  values: ['Planning', 'Active', 'Completed', 'Cancelled'],
+  allowNull: false,
+  defaultValue: 'Planning',
+},
+
+Examples of Enum Attributes in New Models
+
+Location Model with type Enum
+
+Suppose locations can be either “Physical” or “Virtual”:
+
+// models/location.js
+class Location extends Model {}
+
+Location.init({
+  address: DataTypes.STRING,
+  city: DataTypes.STRING,
+  country: DataTypes.STRING,
+  type: {
+    type: DataTypes.ENUM,
+    values: ['Physical', 'Virtual'],
+    allowNull: false,
+  },
+}, { sequelize, modelName: 'location' });
+
+Objective Model with Priority Enum
+
+Objectives might have priorities like “High”, “Medium”, “Low”:
+
+// models/objective.js
+class Objective extends Model {}
+
+Objective.init({
+  title: DataTypes.STRING,
+  description: DataTypes.TEXT,
+  priority: {
+    type: DataTypes.ENUM,
+    values: ['High', 'Medium', 'Low'],
+    allowNull: false,
+  },
+}, { sequelize, modelName: 'objective' });
+
+Resource Model with resourceType Enum
+
+Resources could be of different types such as “Human”, “Financial”, “Material”:
+
+// models/resource.js
+class Resource extends Model {}
+
+Resource.init({
+  resourceType: {
+    type: DataTypes.ENUM,
+    values: ['Human', 'Financial', 'Material'],
+    allowNull: false,
+  },
+  quantity: DataTypes.INTEGER,
+  description: DataTypes.TEXT,
+}, { sequelize, modelName: 'resource' });
+
+Usage
+
+Enums are very useful for ensuring data integrity and making your database schema more descriptive. However, it’s important to note that changing enum values after the initial database creation can be more involved with Sequelize, especially if you are using a database like PostgreSQL. This is because altering an enum type to add, rename, or remove possible values requires additional steps beyond simple migrations, such as creating a new enum type, altering the column to use the new enum, and then removing the old enum type.
+
+Always carefully plan the use of enums in your schema design to avoid complicated migrations down the road.
+
