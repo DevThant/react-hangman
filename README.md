@@ -421,3 +421,21 @@ And ensure you're capturing the initial userIds correctly in editItem:editItem(i
   // rest of your code to open the edit form
 }
 SummaryThe key to resolving the issue is ensuring that any and all changes to userIds—whether additions, removals, or replacements—are correctly detected and trigger updates. By accurately capturing and comparing the initial and final states of userIds, and by refining the comparison logic, you should be able to address the problem of updates not being triggered when replacing or removing users.
+
+function arraysEqual(a, b) {
+  a = [...a].sort();
+  b = [...b].sort();
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    if (a[i] !== b[i]) return false;
+  }
+  return true;
+}
+
+
+editItem(item) {
+  // Assuming item.users already contains the userIds correctly
+  this.userIds = [...item.userIds]; // Capture the current userIds accurately
+  this.oldItem = { ...item, userIds: [...this.userIds] }; // Store a copy for comparison
+  // rest of your code to open the edit form
+}
