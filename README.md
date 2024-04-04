@@ -439,3 +439,36 @@ editItem(item) {
   this.oldItem = { ...item, userIds: [...this.userIds] }; // Store a copy for comparison
   // rest of your code to open the edit form
 }
+
+function hasUsersChanged(oldUserIds, newUserIds) {
+  // Direct comparison if one is empty and the other is not
+  if ((oldUserIds.length === 0 && newUserIds.length > 0) || (oldUserIds.length > 0 && newUserIds.length === 0)) {
+    return true;
+  }
+  
+  // Use the refined arraysEqual function for non-empty array comparison
+  return !arraysEqual(oldUserIds, newUserIds);
+}
+
+
+
+async save() {
+  this.$refs.crudForm.validate();
+  if (this.valid) {
+    let item = { ...this.editedItem, userIds: this.userIds };
+    // Use the adjusted hasUsersChanged function for comparison
+    const userIdsChanged = hasUsersChanged(this.oldItem.userIds || [], this.userIds);
+
+    if (this.editedIndex > -1) {
+      if (!isEqual(this.oldItem, this.editedItem) || userIdsChanged) {
+        item.edited = !this.editedItem.added;
+        item.deleted = false;
+        await this.onUpdate(item);
+      }
+    } else {
+      item.added = true;
+      await this.onCreate(item);
+    }
+    this.close();
+  }
+}
