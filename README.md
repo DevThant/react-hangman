@@ -786,7 +786,52 @@ A: Do you need alternative methods or have compatibility concerns?
 S: Is there a need for clarification on Vue.js or Vuex concepts?
 D: Are there additional functionalities or integrations you're considering?
 
+```
+// models/notification.js
 
+const { Model, DataTypes } = require('sequelize');
+const sequelize = require('../utils/database'); // Adjust as necessary for your database connection setup
+const User = require('./user'); // Import the User model for association
 
+class Notification extends Model {}
+
+Notification.init({
+  id: {
+    type: DataTypes.INTEGER,
+    primaryKey: true,
+    autoIncrement: true
+  },
+  content: {
+    type: DataTypes.STRING, // Assuming your content will be text-based and not exceed the length limits
+    allowNull: false
+  },
+  type: {
+    type: DataTypes.STRING, // E.g., 'Program Update', 'New Comment'
+    allowNull: false
+  },
+  read: {
+    type: DataTypes.BOOLEAN,
+    defaultValue: false
+  },
+  // Assuming you have a userId field in your Notification model to associate it with the User model
+  userId: {
+    type: DataTypes.INTEGER,
+    allowNull: false,
+    references: {
+      model: 'Users', // This is the table name. Adjust according to your actual Users table name
+      key: 'id'
+    }
+  }
+}, {
+  sequelize,
+  modelName: 'Notification' // This is the name of the model. Sequelize will by default create a table with the plural form of this name, unless you specify otherwise.
+});
+
+// Association with User model. Assuming one User has many Notifications
+User.hasMany(Notification, { foreignKey: 'userId' });
+Notification.belongsTo(User, { foreignKey: 'userId' });
+
+module.exports = Notification;
+```
 
 
