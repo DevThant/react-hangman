@@ -890,9 +890,112 @@ server.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
 });
 ```
+Then, in your main Vue.js application file (e.g., main.js or app.js), you can initialize the Socket.IO client and make it globally available, or use it within a specific component:
+```
+import Vue from 'vue';
+import App from './App.vue';
+import socketio from 'socket.io-client';
+import VueSocketIO from 'vue-socket.io';
 
+export const SocketInstance = socketio('http://localhost:8080'); // The URL where your backend server listens
+
+Vue.use(new VueSocketIO({
+  debug: true,
+  connection: SocketInstance,
+}));
+
+new Vue({
+  render: h => h(App),
+}).$mount('#app');
+
+```
+Adjust the http://localhost:8080 URL to match your backend server URL and port.
+
+Step 2: Listening for Notifications in Components
+
+In a Vue component where you want to display or handle incoming notifications (e.g., a notification list component), you can listen for the notification event:
+
+```
+export default {
+  name: 'NotificationList',
+  data() {
+    return {
+      notifications: [],
+    };
+  },
+  sockets: {
+    connect() {
+      console.log('Connected to server for notifications.');
+    },
+    notification(data) {
+      console.log('New notification received:', data);
+      this.notifications.push(data);
+    }
+  },
+  // Other component options...
+};
+```
+This component will listen for notification events emitted by the server and add them to its notifications data array. You can then display these notifications in the component’s template.
+
+Displaying Notifications
+
+In the NotificationList component’s template, you can iterate over the notifications array to display each notification:
+```
+<template>
+  <div>
+    <h2>Notifications</h2>
+    <ul>
+      <li v-for="notification in notifications" :key="notification.id">
+        {{ notification.content }}
+      </li>
+    </ul>
+  </div>
+</template>
+
+```
+For the notification functionality to work seamlessly with Socket.IO in your backend, you might want to consider adding some specific logic to utils/socketio/index.js, particularly for handling user connections and mapping them to their user IDs. This will ensure that notifications are sent to the correct users.
+
+Handling User Connections
+
+When a user connects to your Socket.IO server, you likely want to associate that connection with their user ID. This allows you to target notifications to individual users based on their user ID. Here’s an example of how you could extend utils/socketio/index.js to handle user connections and room joining:
+```
+// utils/socketio/index.js
+const socketio = require('socket.io');
+const http = require('http');
+
+let io = null;
+
+const initialize = (app) => {
+  const server = http.createServer(app);
+  io = socketio(server, {
+    cors: {
+      origin: process.env.CLIENT_URL,
+      methods: ["GET", "POST"],
+    },
+  });
+
+  io.on('connection', (socket) => {
+    console.log(`New client connected: ${socket.id}`);
+
+    // Example: User sends their userID to join a room with the same name as their userID
+    socket.on('joinUserRoom', (userId) => {
+      console.log(`User ${userId} joined their room`);
+      socket.join(userId.toString()); // Ensure userId is a string
+    });
+
+    // Add more event listeners as needed
+  });
+
+  return server;
+};
+
+module.exports = { io, initialize };
 ```
 
 ```
+
+```
+
+
 
 
