@@ -833,5 +833,34 @@ Notification.belongsTo(User, { foreignKey: 'userId' });
 
 module.exports = Notification;
 ```
+<hr>
+```
+// utils/socketio.js
 
+const http = require('http');
+const { Server } = require('socket.io');
 
+function initialize(app) {
+  const server = http.createServer(app);
+  const io = new Server(server, {
+    // any additional options
+  });
+
+  io.on('connection', (socket) => {
+    console.log('A user connected', socket.id);
+
+    // Example of joining a room
+    socket.on('joinRoom', (roomId) => {
+      socket.join(roomId);
+      console.log(`User ${socket.id} joined room ${roomId}`);
+    });
+
+    // Add more event listeners as needed
+  });
+
+  // Make io accessible throughout the application, e.g., via req.app.get('io')
+  app.set('io', io);
+
+  return server; // Return the HTTP server object
+}
+```
