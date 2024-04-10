@@ -836,32 +836,63 @@ module.exports = Notification;
 <hr>
 
 ```
-// utils/socketio.js
-
+// utils/socketio/index.js
+const socketio = require('socket.io');
 const http = require('http');
-const { Server } = require('socket.io');
 
-function initialize(app) {
-  const server = http.createServer(app);
-  const io = new Server(server, {
-    // any additional options
+let io = null;
+
+const initialize = (app) => {
+  let server = http.createServer(app);
+  io = socketio(server, {
+    cors: {
+      origin: process.env.CLIENT_URL,
+      methods: ["GET", "POST"]
+    },
   });
 
   io.on('connection', (socket) => {
-    console.log('A user connected', socket.id);
+    console.log(`New client connected: ${socket.id}`);
 
-    // Example of joining a room
+    // Example: handling a custom event
     socket.on('joinRoom', (roomId) => {
       socket.join(roomId);
-      console.log(`User ${socket.id} joined room ${roomId}`);
+      console.log(`Socket ${socket.id} joined room ${roomId}`);
     });
 
-    // Add more event listeners as needed
+    // Remember to handle disconnection
+    socket.on('disconnect', () => {
+      console.log(`Client disconnected: ${socket.id}`);
+    });
   });
 
-  // Make io accessible throughout the application, e.g., via req.app.get('io')
-  app.set('io', io);
+  return server;
+};
 
-  return server; // Return the HTTP server object
-}
+module.exports = { io, initialize }; // Adjusted for CommonJS syntax
 ```
+In your app.js, you need to ensure that you use the server returned by the initialize function to start listening, instead of the Express app directly. It seems like you’re already doing this, but to clarify:
+```
+// app.js
+
+// Other imports...
+const { initialize } = require('./utils/socketio'); // Adjust the path as necessary
+
+// Your existing setup...
+const app = express();
+// app uses and routes...
+
+const server = initialize(app);
+
+// Instead of app.listen, use server.listen to start your HTTP server.
+const PORT = process.env.PORT || 8080;
+server.listen(PORT, () => {
+  console.log(`Server is running on port ${PORT}`);
+});
+```
+
+```
+
+```
+
+
