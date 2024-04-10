@@ -135,3 +135,103 @@ export default {
 ```
 
 This setup will allow you to send notifications to users in real-time when the status of a program changes, store those notifications, and display them in a notification box on the homepage as well as toast notifications. Remember to properly initialize and connect your Vuex modules and ensure that socket.io-client is correctly set up to listen for events in your main Vuex store or a specific module dedicated to handling notifications.
+
+
+
+
+
+
+
+
+
+----
+
+
+Given your current authentication middleware for Express, we can adapt a similar approach for your Socket.IO implementation to authenticate users. The goal is to validate the JWT token sent by the client (either through a query parameter or an emitted event after connection) and associate the authenticated user with their socket session.
+Here’s how you can integrate JWT authentication with your Socket.IO setup:
+Modifying utils/socketio/index.js for Authentication
+We'll update your Socket.IO initialization to authenticate users based on the JWT sent after establishing the socket connection. This approach ensures that the token isn't exposed in the connection URL, providing a more secure authentication process.
+```
+const socketio = require('socket.io');
+const http = require('http');
+const jwt = require('jsonwebtoken');
+const User = require('../models/user'); // Adjust path as necessary
+
+let io = null;
+const userSocketMap = {};
+
+const initialize = (app) => {
+  const server = http.createServer(app);
+  io = socketio(server, {
+    cors: {
+      origins: [process.env.CLIENT_URL],
+      methods: ["GET", "POST"]
+    },
+  });
+
+  io.use(async (socket, next) => {
+    try {
+      const token = socket.handshake.auth.token; // Using auth object in handshake for security
+      if (!token) throw new Error("Authentication token is required.");
+
+      const decoded = jwt.verify(token, process.env.JWT_SECRET);
+      const userExist = await User.findOne({
+        where: { oid: decoded.oid },
+        include: [{ model: Role, include: [Permission], separate: true }]
+      });
+      if (!userExist) throw new Error("User does not exist.");
+
+      // Associate socket with the user ID
+      socket.userId = userExist.id;
+      userSocketMap[userExist.id] = socket.id;
+
+      next(); // Proceed with the connection
+    } catch (error) {
+      console.error(`Socket authentication error: ${error.message}`);
+      next(new Error("Authentication error")); // Disconnect the socket on authentication failure
+    }
+  });
+
+  io.on('connection', (socket) => {
+    console.log(`User ${socket.userId} connected with socket ID ${socket.id}`);
+
+    socket.on('disconnect', () => {
+      console.log(`User ${socket.userId} disconnected`);
+      delete userSocketMap[socket.userId]; // Clean up the user-socket mapping on disconnect
+    });
+  });
+
+  return server;
+};
+
+// Helper function to send notifications to a specific user
+const sendNotificationToUser = (userId, notification) => {
+  const socketId = userSocketMap[userId];
+  if (socketId && io.sockets.sockets.get(socketId)) {
+    io.to(socketId).emit('notification', notification);
+  }
+};
+
+module.exports = { io, initialize, sendNotificationToUser };
+
+```
+
+Client-side Socket.IO Connection with Authentication Token
+On the client-side, when establishing a connection to the Socket.IO server, ensure to include the authentication token within the auth object. This method hides the token from the URL, enhancing security.
+Vue.js Client Example:
+```
+import io from 'socket.io-client';
+
+// Assuming `userToken` is retrieved/stored securely in your Vue.js app
+const socket = io(process.env.VUE_APP_SOCKET_URL, {
+  auth: {
+    token: userToken // Send the token through the handshake process
+  }
+});
+
+socket.on("connect_error", (err) => {
+  console.log(`Connection failed due to authentication: ${err.message}`); // Log or handle errors appropriately
+});
+
+```
+This setup aligns your Socket.IO authentication with the existing JWT-based authentication in your Express.js backend, leveraging the same token validation logic for consistency and security. By incorporating these adjustments, your application will authenticate socket connections in a manner similar to HTTP requests, ensuring that each socket is associated with a verified user.
