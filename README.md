@@ -993,8 +993,44 @@ module.exports = { io, initialize };
 ```
 
 ```
+<script>
+export default {
+  data() {
+    return {
+      list: [],
+    };
+  },
+  sockets: {
+    notification(notificationData) {
+      // Assuming the notificationData contains the information you want to display
+      this.list.push(notificationData);
+    },
+  },
+  mounted() {
+    this.$socket.emit('joinUserRoom', 'userId'); // Replace 'userId' with actual user ID
+  },
+};
+</script>
+```
 
 ```
+
+```
+
+```
+
+```
+
+```
+
+```
+
+
+```
+
+```
+
+
 
 
 
