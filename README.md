@@ -834,6 +834,7 @@ Notification.belongsTo(User, { foreignKey: 'userId' });
 module.exports = Notification;
 ```
 <hr>
+
 ```
 // utils/socketio.js
 
