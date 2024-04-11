@@ -1027,7 +1027,69 @@ export default {
 
 
 ```
+The error message TypeError: Cannot read properties of null (reading 'sockets') suggests that at some point in your programService.js file, there’s an attempt to access the sockets property of an object that is null. This is most likely related to your Socket.IO implementation where you’re trying to emit an event to the clients.
 
+Here’s how you might encounter this error in a Socket.IO context:
+
+// This will throw an error if `io` is null.
+io.sockets.emit('some-event', { data: 'test' });
+
+The io object should be the initialized Socket.IO server. If io is null, it means that the server has not been initialized correctly before you’re trying to use it.
+
+To resolve this issue, you should ensure that:
+
+	1.	The Socket.IO server is properly initialized before any attempt is made to use it.
+	2.	The io object is not null when you try to access its properties.
+
+Here’s what you can do to debug and fix the issue:
+
+	•	Make sure that you are initializing the Socket.IO server properly in your main server file (where you set up the Express app and Socket.IO together).
+	•	Check the order of your requires/imports to ensure that io is not being used before it has been initialized.
+	•	If you’re using separate modules, you may want to export a function that sets the io instance after it has been initialized, and ensure this function is called at the right time in the application lifecycle.
+
+For example:
+
+// utils/socketio/index.js
+let io = null;
+
+function initialize(httpServer) {
+  io = require('socket.io')(httpServer);
+  // Setup your namespaces, middleware, event listeners, etc.
+}
+
+function getIo() {
+  if (!io) {
+    throw new Error("Socket.io has not been initialized. Please call initialize() first.");
+  }
+  return io;
+}
+
+module.exports = { initialize, getIo };
+
+And in your main server setup:
+
+// main server setup file (e.g., app.js)
+const { initialize } = require('./utils/socketio');
+
+const httpServer = createServer(app);
+initialize(httpServer);
+
+// Start your server
+httpServer.listen(port, () => {
+  console.log(`Server listening on port ${port}`);
+});
+
+Then, in programService.js or wherever you need to use the io instance, you make sure to retrieve the initialized instance:
+
+// programService.js
+const { getIo } = require('./utils/socketio');
+
+function someFunction() {
+  const io = getIo(); // This will throw an error if io is not initialized
+  io.sockets.emit('update', { message: 'Program status updated' });
+}
+
+This setup ensures that you don’t accidentally use io before it’s ready and provides a clearer error message if you do.
 ```
 
 
