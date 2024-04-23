@@ -721,3 +721,35 @@ export default {
 };
 
 ```
+<br>
+
+```
+// Vuex Actions in notifications.js
+const actions = {
+  async fetchNotifications({ commit }, { page, size }) {
+    try {
+      const response = await axios.get(`/notifications?page=${page}&size=${size}`);
+      const { notifications, total } = response.data;
+      if (page === 1) {
+        commit('SET_NOTIFICATIONS', notifications); // Reset notifications on first page
+      } else {
+        commit('APPEND_NOTIFICATIONS', { notifications, total });
+      }
+      commit('SET_TOTAL_NOTIFICATIONS', total); // Set total notifications count
+    } catch (error) {
+      console.error("Error fetching notifications:", error);
+    }
+  },
+};
+
+```
+
+#New
+```
+.created() {
+  this.fetchNotifications({
+    page: this.currentPage,
+    size: this.pageSize,
+  });
+},
+```
