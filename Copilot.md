@@ -634,7 +634,7 @@ export default {
 </style>
 ```
 
-
+```
 export default {
   // ... other component options
   
@@ -658,3 +658,4 @@ export default {
   
   // ... rest of the script
 };
+```
