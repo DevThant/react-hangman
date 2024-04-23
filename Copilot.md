@@ -659,3 +659,45 @@ export default {
   // ... rest of the script
 };
 ```
+
+
+
+```javascript
+// store/modules/notifications.js
+
+const actions = {
+  async fetchNotifications({ commit }, { page, size }) {
+    try {
+      const response = await axios.get(`/notifications?page=${page}&size=${size}`);
+      const { notifications, total } = response.data; // Ensure you are extracting 'total' correctly
+      if (page === 1) {
+        commit("SET_NOTIFICATIONS", notifications); // Only set notifications
+        commit("SET_TOTAL_NOTIFICATIONS", total); // Set total separately
+      } else {
+        commit("APPEND_NOTIFICATIONS", { notifications, total }); // Append and set total
+      }
+    } catch (error) {
+      console.error("Error fetching notifications:", error);
+    }
+  },
+  clearNotifications({ commit }) {
+    commit("CLEAR_NOTIFICATIONS");
+  },
+};
+
+const mutations = {
+  APPEND_NOTIFICATIONS: (state, { notifications, total }) => {
+    state.notifications.push(...notifications); // Ensure this does not introduce duplicates
+    state.totalNotifications = total; // Always update total
+  },
+  SET_TOTAL_NOTIFICATIONS: (state, total) => {
+    state.totalNotifications = total;
+  },
+  SET_NOTIFICATIONS: (state, notifications) => {
+    state.notifications = notifications;
+  },
+  CLEAR_NOTIFICATIONS: (state) => {
+    state.notifications = [];
+  },
+};
+```
