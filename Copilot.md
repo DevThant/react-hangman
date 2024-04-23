@@ -753,7 +753,9 @@ const actions = {
   });
 },
 ```
+<br>
 
+```
 // Vuex Actions
 const actions = {
   async fetchNotifications({ commit }, { page, size }) {
@@ -771,12 +773,12 @@ const actions = {
     }
   },
 };
-
+```
 
 
 
 <br>
-
+```
 // If the Vuex module is namespaced, include the namespace
 import { mapState } from 'vuex';
 
@@ -798,10 +800,10 @@ export default {
     });
   },
 };
-
+```
 
 <br>
-
+```
 // Vuex Mutations
 const mutations = {
   SET_TOTAL_NOTIFICATIONS(state, total) {
@@ -811,3 +813,4 @@ const mutations = {
   // other mutations
 };
 
+```
