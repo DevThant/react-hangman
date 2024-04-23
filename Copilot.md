@@ -701,3 +701,23 @@ const mutations = {
   },
 };
 ```
+
+```
+// In your Vue component
+import { mapState } from 'vuex';
+
+export default {
+  computed: {
+    ...mapState({
+      notifications: state => state.notifications.notifications, // Adjust based on your store structure
+      totalNotifications: state => state.notifications.totalNotifications // Adjust based on your store structure
+    }),
+    canLoadMore() {
+      console.log("Total notifications in component:", this.totalNotifications);
+      return this.notifications.length < this.totalNotifications;
+    }
+  },
+  // other component options
+};
+
+```
