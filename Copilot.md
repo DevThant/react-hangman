@@ -566,3 +566,70 @@ With this setup, you have a dedicated Vuex module for managing Socket.IO connect
 </style>
 
 ```
+
+
+
+<br>
+
+```
+<template>
+  <section class="notification-section">
+    <ul class="notification-list">
+      <!-- ...rest of the code -->
+    </ul>
+    <button 
+      class="view-more-button" 
+      @click="loadMoreNotifications" 
+      v-if="canLoadMore"
+    >
+      View More
+    </button>
+  </section>
+</template>
+
+<script>
+// ... rest of your script
+export default {
+  // ... rest of your component options
+  computed: {
+    // ... other computed properties,
+    canLoadMore() {
+      return this.notifications.length < this.totalNotifications;
+    }
+  }
+  // ...
+};
+</script>
+
+<style scoped>
+.notification-section {
+  /* ...existing styles... */
+}
+
+.view-more-button {
+  padding: 10px 20px;
+  margin-top: 10px;
+  background-color: #5c6bc0; /* Choose a color that fits your design */
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.9rem;
+  font-weight: bold;
+  transition: background-color 0.3s ease;
+
+  &:hover {
+    background-color: #3949ab; /* Darker shade for hover state */
+  }
+
+  &:focus {
+    outline: none;
+  }
+
+  &:disabled {
+    background-color: #9fa8da; /* Lighter shade for disabled state */
+    cursor: not-allowed;
+  }
+}
+</style>
+```
