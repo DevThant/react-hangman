@@ -484,3 +484,85 @@ Step 5: Ensure Socket Connection is Made After Login
 After a successful login, make sure to dispatch the action to connect the socket. This should already be covered in the LOGIN action in the authUser module as shown earlier.
 
 With this setup, you have a dedicated Vuex module for managing Socket.IO connections, which is integrated with your existing authentication flow. This ensures that notifications are managed centrally and can be accessed throughout your application via Vuex.
+
+
+<br>
+
+#Notification list 
+
+```
+<template>
+  <section class="notification-section">
+    <div class="notification-box">
+      <ul class="notification-list">
+        <li v-for="notification in notifications" :key="notification.id" @click="goToReference(notification)">
+          <span class="notification-content" :class="{ unread: !notification.read }">
+            <span class="status-indicator" v-if="!notification.read"></span>
+            {{ notification.content }}
+          </span>
+          <small class="notification-date">{{ formatDate(notification.createdAt) }}</small>
+        </li>
+      </ul>
+    </div>
+  </section>
+</template>
+
+<script>
+// ... your script remains the same
+</script>
+
+<style lang="scss" scoped>
+.notification-section {
+  .notification-box {
+    width: 18rem;
+    // ... other styles
+  }#
+
+
+  .notification-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+
+    li {
+      padding: 0.5rem;
+      border-bottom: 1px solid #eee;
+      margin-bottom: 0.5rem;
+      &:last-child {
+        border-bottom: none;
+      }
+
+      &:hover {
+        background-color: #f9f9f9;
+      }
+    }
+
+    .notification-content {
+      display: block;
+      color: #333;
+      margin-right: 0.5rem;
+
+      &.unread {
+        font-weight: bold;
+      }
+    }
+
+    .status-indicator {
+      display: inline-block;
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background-color: black;
+      margin-right: 0.5rem;
+    }
+
+    .notification-date {
+      display: block;
+      color: #999;
+      font-size: 0.85rem;
+    }
+  }
+}
+</style>
+
+```
