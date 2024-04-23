@@ -778,6 +778,7 @@ const actions = {
 
 
 <br>
+
 ```javascript
 // If the Vuex module is namespaced, include the namespace
 import { mapState } from 'vuex';
@@ -800,11 +801,11 @@ export default {
     });
   },
 };
+
 ```
 
 <br>
 ```javascript
-
 // Vuex Mutations
 const mutations = {
   SET_TOTAL_NOTIFICATIONS(state, total) {
