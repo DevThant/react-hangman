@@ -753,3 +753,61 @@ const actions = {
   });
 },
 ```
+
+// Vuex Actions
+const actions = {
+  async fetchNotifications({ commit }, { page, size }) {
+    try {
+      const response = await axios.get(`/notifications?page=${page}&size=${size}`);
+      const { notifications, total } = response.data;
+      if (page === 1) {
+        commit('SET_NOTIFICATIONS', notifications); // Resets notifications on the first page
+      } else {
+        commit('APPEND_NOTIFICATIONS', { notifications, total });
+      }
+      commit('SET_TOTAL_NOTIFICATIONS', total); // Sets total notifications count
+    } catch (error) {
+      console.error("Error fetching notifications:", error);
+    }
+  },
+};
+
+
+
+
+<br>
+
+// If the Vuex module is namespaced, include the namespace
+import { mapState } from 'vuex';
+
+export default {
+  computed: {
+    ...mapState('notificationsModule', [ // replace 'notificationsModule' with your actual namespace
+      'notifications',
+      'totalNotifications'
+    ]),
+    canLoadMore() {
+      console.log("Total notifications in component:", this.totalNotifications); // Debugging output
+      return this.notifications.length < this.totalNotifications;
+    }
+  },
+  created() {
+    this.fetchNotifications({
+      page: this.currentPage,
+      size: this.pageSize,
+    });
+  },
+};
+
+
+<br>
+
+// Vuex Mutations
+const mutations = {
+  SET_TOTAL_NOTIFICATIONS(state, total) {
+    console.log('Setting total notifications:', total);
+    state.totalNotifications = total;
+  },
+  // other mutations
+};
+
