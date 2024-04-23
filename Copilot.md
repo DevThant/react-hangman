@@ -633,3 +633,28 @@ export default {
 }
 </style>
 ```
+
+
+export default {
+  // ... other component options
+  
+  computed: {
+    canLoadMore() {
+      console.log('Current notifications:', this.notifications.length);
+      console.log('Total notifications:', this.totalNotifications);
+      return this.notifications.length < this.totalNotifications;
+    }
+    // ... other computed properties
+  },
+  
+  // When fetching notifications, after setting them:
+  methods: {
+    loadMoreNotifications() {
+      // ... method logic to load more notifications
+      console.log('Updated notifications:', this.notifications.length);
+    },
+    // ... other methods
+  },
+  
+  // ... rest of the script
+};
