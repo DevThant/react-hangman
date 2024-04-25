@@ -877,3 +877,36 @@ methods: {
   // ... other methods
 }
 ```
+
+
+```
+
+<template>
+  <v-btn v-if="authUser" text :to="'/profile'" class="navBtn mr-4">
+    {{ userInitials }}
+  </v-btn>
+</template>
+
+<script>
+export default {
+  computed: {
+    authUser() {
+      const user = this.$store.getters.authUser;
+      return user;
+    },
+    userInitials() {
+      if (this.authUser && this.authUser.fullName) {
+        const names = this.authUser.fullName.split(' ');
+        const initials = names.map(name => name[0]).join('');
+        return initials;
+      }
+      return '';
+    },
+  },
+};
+</script>
+
+<style lang="scss" scoped>
+/* Your styles here */
+</style>
+```
