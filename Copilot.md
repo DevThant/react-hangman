@@ -910,3 +910,51 @@ export default {
 /* Your styles here */
 </style>
 ```
+
+
+```
+
+<template>
+  <v-btn v-if="authUser" class="rounded-btn" :to="'/profile'">
+    {{ userInitials }}
+  </v-btn>
+</template>
+
+<script>
+export default {
+  computed: {
+    authUser() {
+      return this.$store.getters.authUser;
+    },
+    userInitials() {
+      if (this.authUser && this.authUser.fullName) {
+        const names = this.authUser.fullName.split(' ');
+        const initials = names.map(name => name[0]).join('');
+        return initials;
+      }
+      return '';
+    },
+  },
+};
+</script>
+
+<style lang="scss" scoped>
+.rounded-btn {
+  border-radius: 50%; /* Makes the button round */
+  aspect-ratio: 1 / 1; /* Ensures the width and height are always equal */
+  padding: 8px; /* Adjust the padding to your preference */
+  min-width: 0; /* Remove the minimum width to allow the button to be smaller */
+  
+  // These colors are placeholders, replace with your actual color values
+  color: #b08d57; /* Gold color for text */
+  border: 2px solid #b08d57; /* Gold color for border */
+  font-weight: 600; /* Semi-bold font weight for the text */
+
+  &:hover {
+    background-color: rgba(#b08d57, 0.1); /* Light gold background on hover */
+  }
+}
+</style>
+
+
+```
