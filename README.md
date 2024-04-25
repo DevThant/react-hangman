@@ -1093,7 +1093,65 @@ This setup ensures that you don’t accidentally use io before it’s ready and 
 ```
 
 
+```
+<template>
+  <v-menu offset-y>
+    <template v-slot:activator="{ on, attrs }">
+      <v-btn
+        v-if="authUser"
+        class="rounded-btn profile-button"
+        v-bind="attrs"
+        v-on="on"
+      >
+        {{ userInitials }}
+      </v-btn>
+    </template>
 
+    <v-list>
+      <v-list-item :to="'/profile'">
+        <v-list-item-title>Profile</v-list-item-title>
+      </v-list-item>
+      <v-list-item @click="logout">
+        <v-list-item-title>Logout</v-list-item-title>
+      </v-list-item>
+    </v-list>
+  </v-menu>
+</template>
+
+<script>
+export default {
+  computed: {
+    // ... existing computed properties
+  },
+  methods: {
+    logout() {
+      // Logic for logging out
+    },
+  },
+};
+</script>
+
+<style lang="scss" scoped>
+// ... existing styles
+
+// Styles for the dropdown menu
+.v-menu {
+  .v-list {
+    min-width: 100px; // Set minimum width for the dropdown list
+  }
+}
+
+// Styles for list items in the dropdown menu
+.v-list-item {
+  padding: 8px 16px; // Set padding for list items
+  &:hover {
+    background-color: rgba(#b08d57, 0.1); // Change the color on hover if needed
+  }
+}
+</style>
+
+
+```
 
 
 
