@@ -815,3 +815,65 @@ const mutations = {
   // other mutations
 };
 ```
+
+
+
+```css
+.notification-list li {
+  display: flex;
+  align-items: center;
+  padding: 0.5rem 0;
+  border-bottom: 1px solid #eee;
+  margin-bottom: 0.5rem;
+  position: relative;
+
+  &:last-child {
+    border-bottom: none;
+    margin-bottom: 0;
+  }
+}
+
+.status-indicator {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background-color: black;
+  margin-right: 10px; /* Space between the indicator and content */
+  flex-shrink: 0; /* Prevents the indicator from shrinking */
+}
+
+.notification-content {
+  flex-grow: 1;
+  display: flex;
+  align-items: center;
+  transition: margin-left 0.3s ease;
+
+  &.unread + .status-indicator {
+    display: none;
+  }
+
+  &.unread {
+    margin-left: 18px; /* Adjust this value to the size of your status-indicator including its margins */
+  }
+}
+```
+
+```
+<li v-for="notification in notifications" :key="notification.id" @click="markAsRead(notification)">
+  <span class="status-indicator" v-if="!notification.read"></span>
+  <span :class="{ 'unread': !notification.read }" class="notification-content">
+    {{ notification.content }}
+  </span>
+</li>=
+
+
+```
+```javascript
+methods: {
+  markAsRead(notification) {
+    // Dispatch an action or commit a mutation to update the notification's 'read' status in the Vuex store
+    this.$store.dispatch('markNotificationAsRead', notification.id);
+  },
+  // ... other methods
+}
+```
