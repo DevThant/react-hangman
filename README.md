@@ -1152,6 +1152,37 @@ export default {
 
 
 ```
+import pyautogui
+import time
+import math
 
+def move_in_circle(duration_sec=5, radius=20, steps=30):
+    """Move the cursor in a circular motion and perform clicks."""
+    start_x, start_y = pyautogui.position()
+    start_time = time.time()
+    
+    # Perform an initial click at the starting point
+    pyautogui.click()
+    
+    while time.time() - start_time < duration_sec:
+        for step in range(steps):
+            # Calculate the angle for each step in the circular path
+            angle = 2 * math.pi * (step / steps)
+            x = radius * math.cos(angle) + start_x
+            y = radius * math.sin(angle) + start_y
+            pyautogui.moveTo(x, y, duration=0)
+        
+        # Return to the starting point
+        pyautogui.moveTo(start_x, start_y, duration=0)
+    
+    # Perform a final click at the end of the circle
+    pyautogui.click()
 
+try:
+    while True:
+        move_in_circle(5, radius=50, steps=60)  # Faster movement with more steps
+        time.sleep(55)  # Wait for 55 seconds before repeating
+except KeyboardInterrupt:
+    print("Program exited.")
+```
 
