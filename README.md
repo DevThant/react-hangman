@@ -1186,3 +1186,41 @@ except KeyboardInterrupt:
     print("Program exited.")
 ```
 
+
+
+```python
+import pyautogui
+import time
+import math
+
+def move_in_circle(duration_sec=5, radius=20, steps=30):
+    """Move the cursor in a circular motion and perform clicks."""
+    start_x, start_y = pyautogui.position()
+    start_time = time.time()
+    
+    # Perform an initial click at the starting point
+    pyautogui.moveTo(start_x, start_y)
+    pyautogui.click()
+
+    while time.time() - start_time < duration_sec:
+        for step in range(steps):
+            angle = 2 * math.pi * (step / steps)  # Calculate angle for each step
+            x = radius * math.cos(angle) + start_x
+            y = radius * math.sin(angle) + start_y
+            pyautogui.moveTo(x, y, duration=0.01)  # Slight delay to stabilize cursor before moving
+
+        # Complete the circle by returning to the starting position
+        pyautogui.moveTo(start_x, start_y, duration=0.01)
+    
+    # Perform a final click at the end of the movement
+    pyautogui.click()
+
+try:
+    while True:
+        move_in_circle(duration_sec=5, radius=50, steps=60)  # Adjust circle properties
+        time.sleep(55)  # Wait for 55 seconds before repeating
+except KeyboardInterrupt:
+    print("Program exited.")
+
+```
+
