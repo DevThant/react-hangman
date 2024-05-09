@@ -1151,7 +1151,7 @@ export default {
 </style>
 
 
-```
+```python
 import pyautogui
 import time
 import math
