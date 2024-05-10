@@ -1224,3 +1224,6 @@ except KeyboardInterrupt:
 
 ```
 
+
+yarn config set proxy http://your-proxy-server:port
+yarn config set https-proxy https://your-proxy-server:port
