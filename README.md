@@ -25,3 +25,35 @@ Yes, you are correct. Typically, the file extension `.pem` is used for PEM forma
 
 4. **Use the `bundle.pem` file**:
    You can now use the `bundle.pem` file as your Extra CA bundle file, which should contain both certificates in PEM format.
+
+You can check if the `NODE_EXTRA_CA_CERTS` environment variable is correctly set and if Node.js is loading the `bundle.pem` file by running a simple Node.js script that prints out the loaded certificates. Here's a script you can use:
+
+1. Create a new file named `check_ca_certs.js` with the following content:
+
+   ```javascript
+   const https = require('https');
+   const fs = require('fs');
+
+   // Read the bundle.pem file
+   const ca = fs.readFileSync(process.env.NODE_EXTRA_CA_CERTS);
+
+   // Set the global root certificates
+   https.globalAgent.options.ca = ca;
+
+   // Make a request to a website to trigger certificate verification
+   https.get('https://www.google.com', (res) => {
+       console.log('Certificate verification successful');
+   }).on('error', (err) => {
+       console.error('Certificate verification failed:', err);
+   });
+   ```
+
+2. Run the script using Node.js:
+
+   ```bash
+   node check_ca_certs.js
+   ```
+
+   If the `NODE_EXTRA_CA_CERTS` environment variable is correctly set and Node.js is loading the `bundle.pem` file, the script should output "Certificate verification successful". If there's an issue with the certificates or the loading process, it will output "Certificate verification failed" along with an error message.
+
+This script explicitly sets the global root certificates for the HTTPS module to the ones specified in the `bundle.pem` file, which should trigger the use of your custom CA bundle for certificate verification.
