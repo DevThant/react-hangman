@@ -179,3 +179,82 @@ Master Chief (John-117) and Noble Six (SPARTAN-B312) are among the most prominen
 Master Chief and Noble Six stand out due to their exceptional combat records and leadership qualities. Master Chief's legendary status is built on decades of successful missions and his role in pivotal battles against the Covenant and the Flood. Noble Six's heroism during the Fall of Reach demonstrates their combat prowess and determination.
 
 In conclusion, while Master Chief and Noble Six are among the most formidable SPARTANs, they are part of a larger cadre of elite soldiers, each with unique strengths that contribute to their effectiveness in various combat scenarios.
+
+During the Human-Covenant War, the number of SPARTANs varied across different generations, and newer generations of SPARTANs and advanced armor systems have been developed over time. Here’s a detailed breakdown:
+
+### SPARTAN Generations
+
+#### SPARTAN-I Program
+- **Overview:** The initial SPARTAN-I program, also known as the ORION Project, was an early attempt to create super-soldiers. The program had limited success and produced a small number of augmented soldiers.
+- **Numbers:** Approximately 300 candidates, with fewer than 50 successful augmentations.
+
+#### SPARTAN-II Program
+- **Overview:** The SPARTAN-II program, initiated by Dr. Halsey, was more successful and created highly effective super-soldiers through extensive genetic and cybernetic augmentations.
+- **Numbers:** Initially, 75 children were abducted and trained, but not all survived the augmentation process. Approximately 33 SPARTAN-IIs were fully operational at the start of the Covenant War. Over time, some were lost in battle, reducing their numbers further.
+
+#### SPARTAN-III Program
+- **Overview:** The SPARTAN-III program was designed to produce more SPARTANs at a lower cost, using less intensive augmentations. These soldiers were often deployed in high-risk missions with high casualty rates.
+- **Numbers:** Three main companies were created:
+  - **Alpha Company:** Approximately 300 SPARTAN-IIIs.
+  - **Beta Company:** Approximately 300 SPARTAN-IIIs.
+  - **Gamma Company:** Approximately 330 SPARTAN-IIIs.
+  - Not all SPARTAN-IIIs survived their missions, and many were considered expendable.
+
+#### SPARTAN-IV Program
+- **Overview:** The SPARTAN-IV program, initiated post-war, recruited adult volunteers from existing military personnel and provided them with advanced augmentations and armor.
+- **Numbers:** The exact number is classified, but there are several hundred SPARTAN-IVs. This program aims to produce a larger number of SPARTANs with less intensive but still significant enhancements.
+
+### Latest Armors and Weapons
+
+#### Armor Systems
+
+1. **Mjolnir GEN2 Armor**
+   - **Features:** Enhanced strength, speed, and agility. Integrated AI support, energy shielding, and modular components for customization.
+   - **Variants:** Multiple variants exist for different combat roles, such as the Recon, Scout, and Defender sets.
+
+2. **Mjolnir GEN3 Armor**
+   - **Features:** Further enhancements over GEN2, with improved energy shielding, better mobility, and advanced sensors.
+   - **Deployment:** Used primarily by SPARTAN-IVs and later generations.
+
+3. **SPI Armor (Semi-Powered Infiltration)**
+   - **Features:** Designed for SPARTAN-IIIs, providing stealth capabilities and lighter protection compared to Mjolnir armor. Enhanced mobility and integrated camouflage systems.
+
+#### Weapons
+
+1. **MA5 Series Assault Rifles**
+   - **Overview:** Standard-issue weapons for SPARTANs, reliable and versatile.
+   - **Variants:** Includes the MA5B and MA5C, with different specifications for range, accuracy, and fire rate.
+
+2. **M6 Series Pistols**
+   - **Overview:** Powerful handguns with high accuracy and stopping power.
+   - **Variants:** M6D and M6G are commonly used by SPARTANs.
+
+3. **BR55 Battle Rifle**
+   - **Overview:** A burst-fire weapon favored for its precision and effectiveness at medium range.
+   - **Features:** Equipped with a scope for improved accuracy.
+
+4. **SRS99 Sniper Rifle**
+   - **Overview:** A high-powered, long-range weapon used for precision targeting.
+   - **Features:** Equipped with a high-magnification scope and armor-piercing rounds.
+
+5. **M7 SMG**
+   - **Overview:** A compact, fully automatic weapon suitable for close-quarters combat.
+   - **Features:** High rate of fire and ease of use in tight spaces.
+
+6. **Spartan Laser (M6 G/GNR)**
+   - **Overview:** A directed-energy weapon capable of destroying vehicles and heavily armored targets.
+   - **Features:** High damage output but requires charging before firing.
+
+7. **Energy Sword**
+   - **Overview:** A Covenant melee weapon highly effective in close combat.
+   - **Features:** Plasma blade capable of cutting through most materials.
+
+8. **Gravity Hammer**
+   - **Overview:** A melee weapon used by the Brutes, capable of generating shockwaves.
+   - **Features:** Extremely powerful and can knock back or destroy multiple enemies at once.
+
+### Summary
+
+During the Human-Covenant War, humanity had several generations of SPARTANs, with the SPARTAN-II and SPARTAN-III programs producing the most notable super-soldiers. Post-war, the SPARTAN-IV program expanded the number of SPARTANs significantly.
+
+The latest armor systems, such as the Mjolnir GEN2 and GEN3, provide advanced protection, mobility, and support for the SPARTANs, while a variety of powerful weapons ensure they are well-equipped for any combat scenario.
