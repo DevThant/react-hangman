@@ -313,3 +313,868 @@ A team battle between SPARTANs from the Halo universe and Space Marines from the
 - **SPARTANs:** Excel in agility, reflexes, advanced technology, and tactical flexibility. Their integrated AI and versatile weaponry allow them to adapt to various combat situations effectively.
 
 The outcome of such a battle would likely depend heavily on the specific circumstances and terrain. In many scenarios, Space Marines' sheer power and durability could give them the upper hand, while in more dynamic and complex environments, SPARTANs' adaptability and advanced technology could turn the tide in their favor.
+
+
+
+
+
+
+
+
+Got it. Let's create a plan to integrate the synchronization progress into the toaster component. Here's the detailed step-by-step plan for implementing this feature:
+
+1. **Add progress and totalModels Props to `SpinnerToast.vue`:**
+    - Modify the `SpinnerToast.vue` component to accept `progress` and `totalModels` props.
+    - Update the template to display the synchronization progress.
+
+2. **Modify `Toaster.vue` to Pass Progress Data:**
+    - Ensure the `Toaster.vue` component can pass the `progress` and `totalModels` props to `SpinnerToast`.
+
+3. **Update `toastService` to Handle Synchronization Progress:**
+    - Modify the `toastService` to include `progress` and `totalModels` in the toast properties when creating spinner toasts.
+
+4. **Modify `Sync.vue` to Emit Progress Updates:**
+    - Update the `Sync.vue` component to emit progress updates via the `toastService`.
+
+### Step 1: Update `SpinnerToast.vue`
+
+```vue
+<template>
+  <div class="item default">
+    <div class="header">
+      <span class="title semi-bold">{{ titleText }}</span>
+      <app-icon-button
+        v-if="dismissable"
+        :title="t('common.dismiss')"
+        :name="'times'"
+        class="icon-button dismiss"
+        @click="dismiss"
+      />
+    </div>
+    <app-horizontal-spinner class="spinner" :thin="true"></app-horizontal-spinner>
+    <div class="progress">
+      {{ progress }} / {{ totalModels }} models are done. <!-- Added progress display -->
+    </div>
+  </div>
+</template>
+
+<script setup lang="ts">
+import { onBeforeUnmount, onMounted } from 'vue';
+
+import AppIconButton from '@/components/common/icon/IconButton.vue';
+import AppHorizontalSpinner from '@/components/common/spinner/HorizontalSpinner.vue';
+
+import { ToastEvent, toastService } from '@/services/toast.js';
+import { useI18n } from 'vue-i18n';
+
+defineOptions({ name: 'SpinnerToast' });
+
+const props = withDefaults(
+  defineProps<{
+    id: symbol;
+    title: string;
+    titleVars?: Record<string, unknown>;
+    dismissable?: boolean;
+    progress: number;      // Added new prop for progress
+    totalModels: number;   // Added new prop for total models
+  }>(),
+  {
+    titleVars: () => ({}),
+    dismissable: false,
+    progress: 0,          // Default value for progress
+    totalModels: 0        // Default value for total models
+  }
+);
+
+const emit = defineEmits<{ dismiss: [id: symbol] }>();
+
+const { t, te } = useI18n();
+
+const dismiss = () => emit('dismiss', props.id);
+
+const onDismiss = (id: symbol) => {
+  if (id === props.id) {
+    dismiss();
+  }
+};
+
+const titleText: string = te(props.title) ? t(props.title, props.titleVars) : props.title;
+onMounted(() => {
+  toastService.on(ToastEvent.Dismiss, onDismiss);
+});
+
+onBeforeUnmount(() => {
+  toastService.off(ToastEvent.Dismiss, onDismiss);
+});
+</script>
+
+<style scoped>
+.icon-button {
+  background-color: transparent;
+  border-width: 0;
+  padding: 0;
+  height: 16px;
+  width: 16px;
+  cursor: pointer;
+}
+
+.header {
+  display: flex;
+  flex-direction: row;
+  align-items: flex-start;
+  width: 100%;
+}
+
+.header .title {
+  flex-grow: 1;
+  padding-right: var(--base-spacing-0);
+}
+
+.header .dismiss {
+  fill: var(--toaster-dismiss-icon);
+  flex-shrink: 0;
+  height: 16px;
+  width: 16px;
+  font-size: 16px;
+  display: inline-block;
+}
+
+.header .dismiss:hover {
+  fill: var(--toaster-dismiss-icon);
+}
+
+.spinner {
+  margin: 15px 0 15px;
+}
+
+.progress {
+  font-size: 14px;
+  color: var(--toaster-progress-text-color); // Style for progress text
+  margin-top: 10px;
+}
+</style>
+```
+
+### Step 2: Modify `Toaster.vue`
+
+```vue
+<template>
+  <transition-group
+    v-if="displayedToasts.length"
+    name="list"
+    tag="div"
+    class="container lead"
+    data-testid="toaster"
+  >
+    <component
+      :is="toast.component"
+      v-for="toast in displayedToasts"
+      :key="toast.id"
+      v-bind="{ id: toast.id, class: 'toast', ...toast.properties, progress: toast.properties.progress, totalModels: toast.properties.totalModels }" <!-- Added progress and totalModels binding -->
+      @click="toast.properties.onClick"
+      @dismiss="removeToast"
+    />
+  </transition-group>
+</template>
+
+<script setup lang="ts">
+import { onBeforeUnmount, onMounted, ref, shallowRef } from 'vue';
+
+import { toastService, ToastEvent, Toast } from '@/services/toast.js';
+
+defineOptions({ name: 'Toaster' });
+
+const displayedToasts = shallowRef<Toast[]>([]);
+const toastTimeouts = ref<Map<symbol, number>>(new Map());
+
+const removeToast = (id: symbol): void => {
+  if (toastTimeouts.value.has(id)) {
+    window.clearTimeout(toastTimeouts.value.get(id));
+    toastTimeouts.value.delete(id);
+  }
+
+  displayedToasts.value = displayedToasts.value.filter(toast => toast.id !== id);
+};
+
+const displayToast = (toast: Toast): void => {
+  displayedToasts.value = [...displayedToasts.value, toast];
+
+  if (toast.timeout) {
+    const timeoutHandle = window.setTimeout(() => {
+      removeToast(toast.id);
+    }, toast.timeout);
+
+    toastTimeouts.value.set(toast.id, timeoutHandle);
+  }
+};
+
+const clearAllToasts = () => {
+  displayedToasts.value = [];
+};
+
+onMounted(() => {
+  toastService.on(ToastEvent.Display, displayToast);
+  toastService.on(ToastEvent.CloseAll, clearAllToasts);
+});
+
+onBeforeUnmount(() => {
+  toastService.off(ToastEvent.Display, displayToast);
+  toastService.off(ToastEvent.CloseAll, clearAllToasts);
+});
+</script>
+
+<style scoped>
+.container {
+  position: absolute;
+  width: 100%;
+  min-height: 24px;
+  display: flex;
+  flex-direction: column;
+  align-content: flex-end;
+  z-index: 101;
+  background: transparent;
+  font-family: var(--font-family);
+}
+
+.container > * {
+  position: relative;
+  width: 100%;
+  display: block;
+  padding: var(--base-spacing-7);
+  margin: var(--base-spacing-0);
+  border-radius: var(--base-radius);
+  overflow: hidden;
+  z-index: 3;
+  color: var(--white);
+  background: var(--toaster-background-color-default);
+}
+
+.container > *.default {
+  background: var(--toaster-background-color-default);
+  border: 2px solid var(--toaster-border-color-default);
+}
+
+.container > *.info {
+  background: var(--toaster-background-color-info);
+  border: 0;
+}
+
+.container > *.warning {
+  background: var(--toaster-background-color-default);
+  border: 2px solid var(--toaster-border-color-warning);
+}
+
+.container > *.error {
+  background: var(--toaster-background-color-default);
+  border: 2px solid var(--toaster-border-color-error);
+}
+
+.list-enter-active {
+  transition: all 0.8s linear;
+}
+
+.list-leave-active {
+  transition: all 0.4s linear;
+}
+
+.list-enter {
+  opacity: 0;
+}
+
+.list-leave-to {
+  opacity: 0;
+}
+</style>
+```
+
+### Step 3: Update `toastService.ts`
+
+```ts
+import { DefineComponent } from 'vue';
+import mitt, { Emitter, Handler } from 'mitt';
+import { LoggingService } from '@ebitoolmx/logging-service/console';
+import { loggingService as commonLoggingService } from './logging.js';
+
+export enum ToastEvent {
+  Display = 'display',
+  Dismiss = 'dismiss',
+  CloseAll = 'closeAll'
+}
+
+export enum ToastType {
+  Simple = 'simple',
+  UpdateAvailable = 'updateAvailable',
+  Spinner = 'spinner',
+  Reconnecting = 'reconnecting',
+  PickUpWhereYouLeftOff = 'pickUpWhereYouLeftOff'
+}
+
+/**
+ * All the required details for displaying a toast in the Toaster component.
+ */
+export interface Toast {
+  id: symbol;
+  component?: DefineComponent;
+  properties: Record<string, unknown>;
+  timeout?: number;
+}
+
+type Events = {
+  [ToastEvent.Display]: Toast;
+  [ToastEvent.Dismiss]: symbol;
+  [ToastEvent.CloseAll]: undefined;
+};
+
+/**
+ * Handles toaster events and components for the toaster component.
+ */
+export class ToastService {
+  protected toastComponents = new Map<ToastType | string, DefineComponent>();
+
+  protected events: Emitter<Events> = mitt<Events>();
+
+  public constructor(protected loggingService: LoggingService) {}
+
+  /**
+   * Registers a toast into the service so that it can be referenced later when displaying
+   */
+  public registerToast(type: ToastType | string, toast: any) {
+    this.toastComponents.set(type, toast);
+  }
+
+  /**
+   * Displays a toast with a given id and of specified type. This will emit an event to the Toaster
+   * component with the necessary details to display a toast. This is the most low-level endpoint
+  
+
+ * that all details to be able to display a toast.
+   */
+  public displayWithId(
+    id: symbol,
+    type: ToastType | string,
+    props: Record<string, unknown> = {},
+    timeout: number | undefined = undefined
+  ): symbol {
+    const properties = props;
+    const component = this.toastComponents.get(type);
+
+    if (!component) this.loggingService.error(`Toast type '${type}' has not been registered.`);
+
+    this.events.emit(ToastEvent.Display, { id, component, properties, timeout });
+    this.loggingService.debug(`Displaying toast of type '${type}'`);
+
+    return id;
+  }
+
+  /**
+   * Displays a toast of a specified type. This will auto generate an id and return it before
+   * emitting an event to the Toaster component. See displayWithId().
+   */
+  public display(
+    type: ToastType | string,
+    props: Record<string, unknown> = {},
+    timeout: number | undefined = undefined
+  ): symbol {
+    return this.displayWithId(Symbol('toast'), type, props, timeout);
+  }
+
+  /**
+   * Displays a simple info toast with a provided message and optional timeout
+   */
+  public displayInfo(message: string, timeout?: number): symbol;
+
+  /**
+   * Displays a simple info toast with a provided header, message, and optional timeout
+   */
+  public displayInfo(header: string, message: string, timeout?: number): symbol;
+
+  /**
+   * A fallback implementation for displayInfo that will determine which argument is the toast
+   * message, header, and timeout based on the argument types.
+   */
+  public displayInfo(arg1: string, arg2?: string | number, arg3?: number): symbol {
+    const header: string | undefined = typeof arg2 === 'string' ? arg1 : undefined;
+    const message: string | undefined = typeof arg2 === 'string' ? arg2 : arg1;
+    const timeout: number | undefined = typeof arg2 === 'number' ? arg2 : arg3;
+
+    return this.display(ToastType.Simple, { title: header, text: message, type: 'info' }, timeout);
+  }
+
+  /**
+   * Displays a simple warning toast with a provided message and optional timeout
+   */
+  public displayWarning(message: string, timeout?: number): symbol;
+
+  /**
+   * Displays a simple warning toast with a provided header, message, and optional timeout
+   */
+  public displayWarning(header: string, message: string, timeout?: number): symbol;
+
+  /**
+   * A fallback implementation for displayWarning that will determine which argument is the toast
+   * message, header, and timeout based on the argument types.
+   */
+  public displayWarning(arg1: string, arg2?: string | number, arg3?: number): symbol {
+    const header: string | undefined = typeof arg2 === 'string' ? arg1 : undefined;
+    const message: string | undefined = typeof arg2 === 'string' ? arg2 : arg1;
+    const timeout: number | undefined = typeof arg2 === 'number' ? arg2 : arg3;
+
+    return this.display(
+      ToastType.Simple,
+      { title: header, text: message, type: 'warning' },
+      timeout
+    );
+  }
+
+  /**
+   * Displays a simple error toast with a provided message
+   */
+  public displayError(message: string): symbol;
+
+  /**
+   * Displays a simple error toast with a provided message and header
+   */
+  public displayError(header: string, message: string): symbol;
+
+  /**
+   * A fallback implementation for typing.
+   */
+  public displayError(arg1: string, arg2?: string): symbol {
+    const header = arg2 ? arg1 : undefined;
+    const message = arg2 ?? arg1;
+
+    return this.display(ToastType.Simple, { title: header, text: message, type: 'error' });
+  }
+
+  /**
+   * Will display a spinner toaster with the provided id and header.
+   */
+  public displaySpinner(id: symbol, header: string, progress: number, totalModels: number): symbol { // Updated method to accept progress and totalModels
+    return this.displayWithId(id, ToastType.Spinner, { title: header, progress, totalModels }); // Pass progress and totalModels to props
+  }
+
+  /**
+   * Dismisses a toast with the provided id if it is still present on the screen.
+   */
+  public dismiss(id: symbol): void {
+    this.events.emit(ToastEvent.Dismiss, id);
+  }
+
+  /**
+   * Closes all toasts
+   */
+  public closeAll(): void {
+    this.events.emit(ToastEvent.CloseAll);
+  }
+
+  /**
+   * Subscribe to the closeAll toast event in the toast service
+   */
+  public on<Type extends ToastEvent.CloseAll>(type: Type, callback: Function): void;
+
+  /**
+   * Subscribe to the dismiss toast event in the toast service
+   */
+  public on<Type extends ToastEvent.Dismiss>(type: Type, callback: Function): void;
+
+  /**
+   * Subscribe to the display toast event. This event will pass information about the toast to be
+   * displayed.
+   */
+  public on<Type extends ToastEvent.Display>(type: Type, callback: (toast: Toast) => void): void;
+
+  /**
+   * A fallback type for subscribing to events in the toast service.
+   */
+  public on<T extends ToastEvent>(type: T, callback: Handler<Events[T]>): void {
+    this.events.on(type, callback);
+  }
+
+  /**
+   * Unsubscribe from from an event in the toast service
+   */
+  public off<T extends ToastEvent>(type: T, callback: Handler<Events[T]>): void {
+    this.events.off(type, callback);
+  }
+}
+
+export const toastService = new ToastService(commonLoggingService);
+```
+
+### Step 4: Modify `Sync.vue`
+
+Ensure the `Sync.vue` component can update the toast with progress information.
+
+```vue
+<template>
+  <app-dialog-container title-key="sync.modal.title" data-testid="dialog-sync">
+    <template #content>
+      <app-dialog-process-content-layout
+        v-if="isSyncProcessingDialog"
+        :header="t(header)"
+        :description-line1="message ? t(message) : message"
+      >
+        <template #extra-content>
+          <ul class="sync-progress lead dialog-content-message">
+            <li
+              v-for="(model, index) of status?.allModels"
+              :key="index"
+              :class="{
+                syncing: status?.currentModelName === model,
+                synced: status?.syncedModels.includes(model)
+              }"
+            >
+              <app-icon :name="progressIcon(model)" />
+              {{ model }}
+            </li>
+          </ul>
+        </template>
+      </app-dialog-process-content-layout>
+
+      <app-dialog-icon-content-layout
+        v-else
+        :icon="icon"
+        :icon-color="iconColor"
+        :header="t(header)"
+      >
+        <template #extra-content>
+          <div v-if="isSyncUnsuccessfulDialog || isSyncFailedDialog" class="unsuccessful">
+            <div class="unsuccessful-message">
+              <p v-if="isSyncUnsuccessfulDialog" class="lead dialog-content-message">
+                {{ t('sync.modal.message.unsuccessful') }}
+              </p>
+              <p class="lead dialog-content-message">{{ t('sync.modal.message.contact') }}</p>
+              <a
+                :href="t('common.link')"
+                rel="noopener noreferrer"
+                target="_blank"
+                class="lead dialog-content-message"
+              >
+                {{ t('common.helpSupport') }}
+              </a>
+              <p class="lead dialog-content-message">.</p>
+            </div>
+
+            <div v-if="status?.currentModelName && isSyncUnsuccessfulDialog" class="failed-model">
+              <app-icon name="sync_error" />
+              <p class="lead dialog-content-message">{{ status.currentModelName }}</p>
+            </div>
+          </div>
+          <div v-else-if="isSyncSuccessfulDialog" class="successful">
+            <ul class="sync-progress lead dialog-content-message">
+              <li v-for="(model, index) of status?.syncedModels" :key="index" class="synced">
+                <app-icon name="sync_success" />
+                {{ model }}
+              </li>
+            </ul>
+          </div>
+        </template>
+      </app-dialog-icon-content-layout>
+    </template>
+
+    <template #button-row>
+      <app-button
+        data-testid="reject-sync"
+        :disabled="appStore.hasBlockingTasks"
+        :class="{ primary: !isSyncRequestDialog, secondary: isSyncRequestDialog }"
+        @click="emit('close')"
+        >{{ t('common.close') }}</app-button
+      >
+      <app-button
+        v-if="isSyncRequestDialog"
+        data-testid="accept-sync"
+        class="primary"
+        :disabled="startDisabled"
+        @click="start"
+        >{{ t('common.start') }}</app-button
+      >
+    </template>
+  </app-dialog-container>
+</template>
+<script setup lang="ts">
+import { watch, computed } from 'vue';
+import { PickupPaths, useI18n } from 'vue-i18n';
+
+import { exhaustiveTypeCheck } from '@ebitoolmx/predicates';
+
+import AppIcon from '@/components/common/icon/Icon.vue';
+import AppButton from '@/components/common/formElements/button/Button.vue';
+import AppDialogContainer from '@/components/common/dialog/layouts/DialogContainer.vue';
+import AppDialogIconContentLayout, {
+  IconColor
+} from '@/components/common/dialog/layouts/DialogIconContentLayout.vue';
+import AppDialogProcessContentLayout from '@/components/common/dialog/layouts/DialogProcessContentLayout.vue';
+
+
+
+import { SyncDialogType } from '@/typings/sync.js';
+import { DialogNames } from '@/typings/dialog.js';
+
+import { useAppStore } from '@/stores/app.js';
+import { useProductsStore } from '@/stores/products.js';
+import { useConnectionsStore } from '@/stores/connections.js';
+import { useEditorStore } from '@/stores/editor.js';
+
+import { eventService, EventType } from '@/services/event.js';
+
+import { LocaleMessage } from '@/locale/en.js';
+import { MXSyncProgressEvent, MXSyncProgressStatus } from '@ebitoolmx/gateway-types';
+import { useAuthService } from '@/auth/index.js';
+
+import { toastService } from '@/services/toast.js'; // Import toastService
+
+defineOptions({ name: 'Sync' });
+const props = defineProps<{
+  dialogType: SyncDialogType;
+  status?: MXSyncProgressEvent;
+}>();
+
+const emit = defineEmits(['close']);
+const appStore = useAppStore();
+const { userDetails } = useAuthService();
+const connectionsStore = useConnectionsStore();
+const productsStore = useProductsStore();
+const editorStore = useEditorStore();
+const { t } = useI18n();
+
+const header = computed<PickupPaths<LocaleMessage>>(() => {
+  switch (props.dialogType) {
+    case SyncDialogType.Requested:
+      return 'sync.modal.header.requested';
+    case SyncDialogType.Initialising:
+      return 'sync.modal.header.initialising';
+    case SyncDialogType.Processing:
+      return 'sync.modal.header.processing';
+    case SyncDialogType.Successful:
+      return 'sync.modal.header.successful';
+    case SyncDialogType.InitialisingFailed:
+      return 'sync.modal.header.initialisingFailed';
+    case SyncDialogType.Unsuccessful:
+      return 'sync.modal.header.unsuccessful';
+    case SyncDialogType.Offline:
+      return 'sync.modal.header.offline';
+    default:
+      return exhaustiveTypeCheck(props.dialogType);
+  }
+});
+
+const message = computed<PickupPaths<LocaleMessage> | null>(() => {
+  switch (props.dialogType) {
+    case SyncDialogType.Requested:
+      return 'sync.modal.message.requested';
+    case SyncDialogType.Processing:
+      return 'sync.modal.message.progress';
+    case SyncDialogType.Offline:
+      return 'sync.modal.message.offline';
+    case SyncDialogType.Initialising:
+      return null;
+    case SyncDialogType.Successful:
+      return null;
+    case SyncDialogType.InitialisingFailed:
+      return null;
+    case SyncDialogType.Unsuccessful:
+      return null;
+    default:
+      return exhaustiveTypeCheck(props.dialogType);
+  }
+});
+
+const progressIcon = (model: string) => {
+  if (props.status?.syncedModels.includes(model)) {
+    return 'sync_success';
+  }
+  if (props.status?.currentModelName === model) {
+    return 'sync_in_progress';
+  }
+  return 'sync_no_progress';
+};
+
+const icon = computed<string>(() => {
+  switch (props.dialogType) {
+    case SyncDialogType.Requested:
+      return 'sync';
+    case SyncDialogType.Successful:
+      return 'sync_success';
+    case SyncDialogType.Unsuccessful:
+      return 'warning';
+    case SyncDialogType.InitialisingFailed:
+      return 'warning';
+    case SyncDialogType.Offline:
+      return 'cloud-offline';
+    default:
+      return '';
+  }
+});
+
+const iconColor = computed<IconColor>(() => {
+  switch (props.dialogType) {
+    case SyncDialogType.Requested:
+      return 'text';
+    case SyncDialogType.Successful:
+      return 'success';
+    case SyncDialogType.Unsuccessful:
+      return 'danger';
+    case SyncDialogType.InitialisingFailed:
+      return 'danger';
+    case SyncDialogType.Offline:
+      return 'warning';
+    default:
+      return 'text';
+  }
+});
+
+const isSyncRequestDialog = computed<boolean>(() => props.dialogType === SyncDialogType.Requested);
+
+const isSyncProcessingDialog = computed<boolean>(
+  () =>
+    props.dialogType === SyncDialogType.Processing ||
+    props.dialogType === SyncDialogType.Initialising
+);
+
+const isSyncSuccessfulDialog = computed<boolean>(
+  () => props.dialogType === SyncDialogType.Successful
+);
+
+const isSyncUnsuccessfulDialog = computed<boolean>(
+  () => props.dialogType === SyncDialogType.Unsuccessful
+);
+
+const isSyncFailedDialog = computed<boolean>(
+  () => props.dialogType === SyncDialogType.InitialisingFailed
+);
+
+const startDisabled = computed<boolean>(
+  () =>
+    appStore.hasBlockingTasks ||
+    props.status?.syncProgressStatus === MXSyncProgressStatus.Synchronizing
+);
+
+function start() {
+  const email = userDetails.value?.email;
+  if (!email) return;
+
+  productsStore.syncProduct({
+    productId: productsStore.activeProductId,
+    userId: email,
+    editorType: editorStore.editorType
+  });
+
+  // Emit progress update to the toastService
+  const toastId = Symbol('sync-toast');
+  const totalModels = props.status?.allModels.length || 0;
+  toastService.displaySpinner(toastId, 'Synchronization requested', 0, totalModels);
+
+  const interval = setInterval(() => {
+    const progress = props.status?.syncedModels.length || 0;
+    toastService.displaySpinner(toastId, 'Synchronization requested', progress, totalModels);
+    
+    if (progress >= totalModels) {
+      clearInterval(interval);
+      toastService.dismiss(toastId);
+    }
+  }, 1000);
+}
+
+watch(
+  () => connectionsStore.isOffline,
+  nowOffline => {
+    if (nowOffline)
+      eventService.emit(EventType.OpenDialog, {
+        dialogName: DialogNames.Sync,
+        options: {
+          props: {
+            dialogType: SyncDialogType.Offline
+          },
+          modal: true
+        }
+      });
+  }
+);
+</script>
+
+<style scoped>
+.sync-progress {
+  color: var(--font-disabled-color);
+  fill: var(--font-disabled-color);
+
+  li {
+    display: flex;
+    align-items: center;
+
+    .icon {
+      margin-right: var(--base-spacing-1);
+    }
+  }
+
+  .syncing {
+    color: var(--font-color);
+    fill: var(--font-color);
+  }
+
+  .synced {
+    color: var(--success);
+    fill: var (--success);
+  }
+}
+
+.unsuccessful {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+
+  .unsuccessful-message {
+    display: flex;
+
+    a {
+      color: var(--link-color);
+    }
+
+    p {
+      padding-right: var(--base-spacing-1);
+    }
+  }
+
+  .failed-model {
+    display: flex;
+    align-items: center;
+    color: var(--danger);
+    fill: var(--danger);
+
+    p {
+      padding-left: var(--base-spacing-1);
+    }
+  }
+}
+
+.successful {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+
+  ul {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+
+    li {
+      display: flex;
+      align-items: center;
+      margin-bottom: var(--base-spacing-1);
+
+      .icon {
+        margin-right: var(--base-spacing-1);
+      }
+    }
+  }
+}
+</style>
+```
+
+### Summary of Changes with Comments
+
+1. **`SpinnerToast.vue`:** Added `progress` and `totalModels` props and updated the template to display synchronization progress.
+2. **`Toaster.vue`:** Modified the `v-bind` to pass `progress` and `totalModels` to the `SpinnerToast` component.
+3. **`toastService.ts`:** Updated the `displaySpinner` method to accept `progress` and `totalModels` and pass them as properties.
+4. **`Sync.vue`:** Added logic to emit progress updates to the `toastService`.
+
+By following this plan, you'll be able to display synchronization progress in the toaster component, reflecting the real-time synchronization status to other users in the same workspace. If you encounter any issues or need further assistance, let me know!
