@@ -1,960 +1,295 @@
-Given the detailed setup you have for your Node.js/Express backend and Vue.js frontend using Vuex and Socket.IO for real-time notifications, we'll implement a solution that integrates seamlessly into your existing architecture. We'll tackle this step-by-step, focusing first on the backend implementation to support notifications, and then moving to the frontend to handle receiving and displaying these notifications.
-Backend Implementation
-Step 1: Define a Notification Model
-You'll need a Notification model to store notifications related to users. This model will be defined with Sequelize, similar to your other models.
-```
-// models/notification.js
-const { Model, DataTypes } = require('sequelize');
-const sequelize = require('../utils/database'); // Adjust the path as needed
+Let's debug and refine the implementation step by step to ensure everything works correctly. Here's a detailed plan:
 
-class Notification extends Model {}
+1. **Ensure `Sync.vue` emits the correct progress and totalModels values.**
+2. **Verify the toast service updates the `SpinnerToast` component correctly.**
+3. **Ensure the `SpinnerToast` component displays the progress and totalModels correctly.**
 
-Notification.init({
-  id: {
-    type: DataTypes.INTEGER,
-    autoIncrement: true,
-    primaryKey: true,
-  },
-  userId: {
-    type: DataTypes.INTEGER,
-    allowNull: false,
-  },
-  title: {
-    type: DataTypes.STRING,
-    allowNull: false,
-  },
-  message: {
-    type: DataTypes.TEXT,
-    allowNull: false,
-  },
-  read: {
-    type: DataTypes.BOOLEAN,
-    defaultValue: false,
-  }
-}, {
-  sequelize,
-  modelName: 'notification'
-});
+We'll start by adding console logs to each step to track where the issue might be.
 
-module.exports = Notification;
+### Step 1: Ensure `Sync.vue` emits the correct progress and totalModels values
 
-```
+Update the `start` function in `Sync.vue` to log the progress and totalModels values:
 
-Step 2: Associate Notifications with Users
-Ensure that the User model has a relationship with the Notification model. For example:
-```
-// models/index.js or wherever you associate models
-const User = require('./user');
-const Notification = require('./notification');
+```vue
+<script setup lang="ts">
+import { watch, computed } from 'vue';
+import { useI18n, PickupPaths } from 'vue-i18n';
 
-User.hasMany(Notification, { foreignKey: 'userId' });
-Notification.belongsTo(User, { foreignKey: 'userId' });
+import { exhaustiveTypeCheck } from '@ebitoolmx/predicates';
 
-```
+import AppIcon from '@/components/common/icon/Icon.vue';
+import AppButton from '@/components/common/formElements/button/Button.vue';
+import AppDialogContainer from '@/components/common/dialog/layouts/DialogContainer.vue';
+import AppDialogIconContentLayout, {
+  IconColor
+} from '@/components/common/dialog/layouts/DialogIconContentLayout.vue';
+import AppDialogProcessContentLayout from '@/components/common/dialog/layouts/DialogProcessContentLayout.vue';
 
-Step 3: Update Program Update Logic to Create Notifications
-When a program's status is updated, create a notification for each user related to that status.
-```
-// In your programController.js update method
-if (statusId != null) {
-  // ...existing status and email logic...
+import { SyncDialogType } from '@/typings/sync.js';
+import { DialogNames } from '@/typings/dialog.js';
 
-  // Create a notification for each user
-  status.users.forEach(async (user) => {
-    await Notification.create({
-      userId: user.id,
-      title: `Program Update: ${program.name}`,
-      message: `The status of ${program.name} has been changed to ${status.name}. You have been assigned to do some work!`,
-    });
+import { useAppStore } from '@/stores/app.js';
+import { useProductsStore } from '@/stores/products.js';
+import { useConnectionsStore } from '@/stores/connections.js';
+import { useEditorStore } from '@/stores/editor.js';
 
-    // Emit a socket event to the specific user if they are connected
-    if (io.sockets.connected[user.socketId]) {
-      io.sockets.connected[user.socketId].emit('notification', {
-        title: `Program Update: ${program.name}`,
-        message: `The status of ${program.name} has been changed to ${status.name}. You have been assigned to do some work!`,
-      });
-    }
-  });
-}
+import { eventService, EventType } from '@/services/event.js';
 
-```
-Frontend Implementation
-Step 1: Listen for Socket Events in Vuex Store
-In your Vuex store, create a module for notifications if you don't already have one. Then, in your socket.io-client setup, listen for notification events and update the store accordingly.
-```
-// In your Vuex store (e.g., store/notifications.js)
-const state = {
-  notifications: [],
-};
+import { LocaleMessage } from '@/locale/en.js';
+import { MXSyncProgressEvent, MXSyncProgressStatus } from '@ebitoolmx/gateway-types';
+import { useAuthService } from '@/auth/index.js';
 
-const mutations = {
-  ADD_NOTIFICATION(state, notification) {
-    state.notifications.push(notification);
-  },
-};
+import { toastService } from '@/services/toast.js';
 
-const actions = {
-  socket_notification({ commit }, notification) {
-    commit('ADD_NOTIFICATION', notification);
-  },
-};
+defineOptions({ name: 'Sync' });
+const props = defineProps<{
+  dialogType: SyncDialogType;
+  status?: MXSyncProgressEvent;
+}>();
 
-export default {
-  state,
-  mutations,
-  actions,
-};
+const emit = defineEmits(['close']);
+const appStore = useAppStore();
+const { userDetails } = useAuthService();
+const connectionsStore = useConnectionsStore();
+const productsStore = useProductsStore();
+const editorStore = useEditorStore();
+const { t } = useI18n();
 
-```
-Step 2: Display Notifications in Vue Components
-Use Vuex to get the notifications state and display them in your notification box component. Also, for toast notifications, you can use a Vue plugin like vue-toastification or a similar library.
-```
-// In your NotificationBox.vue or similar component
-<template>
-  <section>
-    <h2>Notifications</h2>
-    <div v-for="notification in notifications" :key="notification.id">
-      <p>{{ notification.title }}</p>
-      <p>{{ notification.message }}</p>
-    </div>
-  </section>
-</template>
-
-<script>
-import { mapState } from 'vuex';
-
-export default {
-  computed: {
-    ...mapState({
-      notifications: (state) => state.notifications.notifications,
-    }),
-  },
-};
-</script>
-
-```
-
-This setup will allow you to send notifications to users in real-time when the status of a program changes, store those notifications, and display them in a notification box on the homepage as well as toast notifications. Remember to properly initialize and connect your Vuex modules and ensure that socket.io-client is correctly set up to listen for events in your main Vuex store or a specific module dedicated to handling notifications.
-
-
-
-
-
-
-
-
-
-----
-
-
-Given your current authentication middleware for Express, we can adapt a similar approach for your Socket.IO implementation to authenticate users. The goal is to validate the JWT token sent by the client (either through a query parameter or an emitted event after connection) and associate the authenticated user with their socket session.
-Here’s how you can integrate JWT authentication with your Socket.IO setup:
-Modifying utils/socketio/index.js for Authentication
-We'll update your Socket.IO initialization to authenticate users based on the JWT sent after establishing the socket connection. This approach ensures that the token isn't exposed in the connection URL, providing a more secure authentication process.
-```
-const socketio = require('socket.io');
-const http = require('http');
-const jwt = require('jsonwebtoken');
-const User = require('../models/user'); // Adjust path as necessary
-
-let io = null;
-const userSocketMap = {};
-
-const initialize = (app) => {
-  const server = http.createServer(app);
-  io = socketio(server, {
-    cors: {
-      origins: [process.env.CLIENT_URL],
-      methods: ["GET", "POST"]
-    },
-  });
-
-  io.use(async (socket, next) => {
-    try {
-      const token = socket.handshake.auth.token; // Using auth object in handshake for security
-      if (!token) throw new Error("Authentication token is required.");
-
-      const decoded = jwt.verify(token, process.env.JWT_SECRET);
-      const userExist = await User.findOne({
-        where: { oid: decoded.oid },
-        include: [{ model: Role, include: [Permission], separate: true }]
-      });
-      if (!userExist) throw new Error("User does not exist.");
-
-      // Associate socket with the user ID
-      socket.userId = userExist.id;
-      userSocketMap[userExist.id] = socket.id;
-
-      next(); // Proceed with the connection
-    } catch (error) {
-      console.error(`Socket authentication error: ${error.message}`);
-      next(new Error("Authentication error")); // Disconnect the socket on authentication failure
-    }
-  });
-
-  io.on('connection', (socket) => {
-    console.log(`User ${socket.userId} connected with socket ID ${socket.id}`);
-
-    socket.on('disconnect', () => {
-      console.log(`User ${socket.userId} disconnected`);
-      delete userSocketMap[socket.userId]; // Clean up the user-socket mapping on disconnect
-    });
-  });
-
-  return server;
-};
-
-// Helper function to send notifications to a specific user
-const sendNotificationToUser = (userId, notification) => {
-  const socketId = userSocketMap[userId];
-  if (socketId && io.sockets.sockets.get(socketId)) {
-    io.to(socketId).emit('notification', notification);
-  }
-};
-
-module.exports = { io, initialize, sendNotificationToUser };
-
-```
-
-Client-side Socket.IO Connection with Authentication Token
-On the client-side, when establishing a connection to the Socket.IO server, ensure to include the authentication token within the auth object. This method hides the token from the URL, enhancing security.
-Vue.js Client Example:
-```
-import io from 'socket.io-client';
-
-// Assuming `userToken` is retrieved/stored securely in your Vue.js app
-const socket = io(process.env.VUE_APP_SOCKET_URL, {
-  auth: {
-    token: userToken // Send the token through the handshake process
+const header = computed<PickupPaths<LocaleMessage>>(() => {
+  switch (props.dialogType) {
+    case SyncDialogType.Requested:
+      return 'sync.modal.header.requested';
+    case SyncDialogType.Initialising:
+      return 'sync.modal.header.initialising';
+    case SyncDialogType.Processing:
+      return 'sync.modal.header.processing';
+    case SyncDialogType.Successful:
+      return 'sync.modal.header.successful';
+    case SyncDialogType.InitialisingFailed:
+      return 'sync.modal.header.initialisingFailed';
+    case SyncDialogType.Unsuccessful:
+      return 'sync.modal.header.unsuccessful';
+    case SyncDialogType.Offline:
+      return 'sync.modal.header.offline';
+    default:
+      return exhaustiveTypeCheck(props.dialogType);
   }
 });
 
-socket.on("connect_error", (err) => {
-  console.log(`Connection failed due to authentication: ${err.message}`); // Log or handle errors appropriately
+const message = computed<PickupPaths<LocaleMessage> | null>(() => {
+  switch (props.dialogType) {
+    case SyncDialogType.Requested:
+      return 'sync.modal.message.requested';
+    case SyncDialogType.Processing:
+      return 'sync.modal.message.progress';
+    case SyncDialogType.Offline:
+      return 'sync.modal.message.offline';
+    case SyncDialogType.Initialising:
+      return null;
+    case SyncDialogType.Successful:
+      return null;
+    case SyncDialogType.InitialisingFailed:
+      return null;
+    case SyncDialogType.Unsuccessful:
+      return null;
+    default:
+      return exhaustiveTypeCheck(props.dialogType);
+  }
 });
 
-```
-This setup aligns your Socket.IO authentication with the existing JWT-based authentication in your Express.js backend, leveraging the same token validation logic for consistency and security. By incorporating these adjustments, your application will authenticate socket connections in a manner similar to HTTP requests, ensuring that each socket is associated with a verified user.
--------
-
-
-User
-Where is this happening? in which file? in what place? In main.js? In store/index.js? Where?
-GPT
-The client-side code for establishing a connection to the Socket.IO server, including the authentication token, should be placed in a part of your Vue.js application where you manage or initiate the connection to the Socket.IO server. This could be in the main.js file if you want the socket connection to be available throughout your entire Vue.js application or within a specific Vuex store module (store/index.js or a dedicated store/modules/socket.js) if you're structuring your socket logic within Vuex.
-
-Placing the Code in main.js
-Placing the code in main.js makes the socket connection available globally, which might be beneficial for an application-wide feature like notifications. Here's an example of how you could integrate it into main.js:
-
-javascript
-Copy code
-import Vue from 'vue';
-import App from './App.vue';
-import store from './store';
-import io from 'socket.io-client';
-
-// Retrieve the user token from where it's stored (e.g., Vuex store, localStorage)
-const userToken = store.state.auth.token || localStorage.getItem('userToken');
-
-const socket = io(process.env.VUE_APP_SOCKET_URL, {
-  auth: {
-    token: userToken,
-  },
-});
-
-socket.on("connect_error", (err) => {
-  console.log(`Connection failed due to authentication: ${err.message}`);
-});
-
-// Make the socket instance available in all components
-Vue.prototype.$socket = socket;
-
-new Vue({
-  store,
-  render: h => h(App),
-}).$mount('#app');
-Placing the Code in Vuex (store/index.js or store/modules/socket.js)
-If you're using Vuex and prefer to encapsulate the socket logic within the store, you can integrate it into store/index.js or a dedicated module file like store/modules/socket.js. This approach can help manage socket connections and events in response to Vuex actions and mutations, providing a more modular and reactive design. Here's a brief example of how it might look in a Vuex module:
-
-javascript
-Copy code
-// store/modules/socket.js
-import io from 'socket.io-client';
-
-export const state = {
-  // Socket state, e.g., connection status, received messages
-};
-
-export const actions = {
-  initializeSocket({ commit }) {
-    const userToken = this.state.auth.token || localStorage.getItem('userToken');
-    const socket = io(process.env.VUE_APP_SOCKET_URL, {
-      auth: {
-        token: userToken,
-      },
-    });
-
-    socket.on("connect_error", (err) => {
-      console.error(`Connection failed due to authentication: ${err.message}`);
-      // Handle connection errors, e.g., commit a mutation to update state
-    });
-
-    // Other socket event listeners...
-
-    // Example: commit mutations or dispatch actions in response to socket events
-    socket.on("notification", (notification) => {
-      commit('addNotification', notification); // Assuming you have a mutation to handle this
-    });
-  },
-};
-
-// Mutations and getters...
-Then, in store/index.js, ensure you import and register this module:
-
-javascript
-Copy code
-import Vue from 'vue';
-import Vuex from 'vuex';
-import socket from './modules/socket';
-
-Vue.use(Vuex);
-
-export default new Vuex.Store({
-  modules: {
-    socket,
-  },
-});
-And trigger the initializeSocket action from your main component or whenever it makes sense in your application flow, such as after user login:
-
-javascript
-Copy code
-this.$store.dispatch('socket/initializeSocket');
-Choose the approach that best fits your application structure and requirements. The key is to establish the socket connection with the authentication token securely and manage the socket's lifecycle and events according to your application's needs.
-
-
--------------
-
-
-Based on your Vuex store structure and the authUser module example you provided, we can create a dedicated module for managing socket connections and integrate it with the authentication logic already present in your authUser module. Let's walk through the steps to set up the socket connection properly:
-
-Step 1: Create a New Vuex Module for Socket.io
-Create a new file for the socket module, for example, store/modules/socket.js. This module will handle the socket connection and manage notifications.
-
-javascript
-Copy code
-// store/modules/socket.js
-import io from 'socket.io-client';
-import { SOCKET_URL } from '@/config';
-
-const state = {
-  socket: null, // the socket instance
-  notifications: [], // all received notifications
-};
-
-const getters = {
-  notifications: state => state.notifications,
-};
-
-const mutations = {
-  SET_SOCKET(state, socket) {
-    state.socket = socket;
-  },
-  ADD_NOTIFICATION(state, notification) {
-    state.notifications.push(notification);
-  },
-};
-
-const actions = {
-  connectSocket({ commit, rootState }) {
-    // Disconnect any existing socket connection
-    if (state.socket) {
-      state.socket.disconnect();
-    }
-
-    // Use the accessToken from the authUser module
-    const socket = io(SOCKET_URL, {
-      auth: {
-        token: rootState.authUser.accessToken, // or however you get your token
-      },
-    });
-
-    socket.on('connect', () => {
-      console.log('Socket connected');
-    });
-
-    socket.on('notification', (notification) => {
-      commit('ADD_NOTIFICATION', notification);
-    });
-
-    socket.on('connect_error', (error) => {
-      console.error('Socket connection error:', error);
-    });
-
-    commit('SET_SOCKET', socket);
-  },
-  disconnectSocket({ state }) {
-    if (state.socket) {
-      state.socket.disconnect();
-      console.log('Socket disconnected');
-    }
-  },
-};
-
-export default {
-  state,
-  getters,
-  mutations,
-  actions,
-};
-Step 2: Include the Socket Module in Your Store
-Modify your store/index.js to include the newly created socket module.
-
-javascript
-Copy code
-// store/index.js
-import socket from './modules/socket';
-
-// ... other imports and Vuex store setup
-
-export default new Vuex.Store({
-  // ... other modules and store options
-  modules: {
-    // ... other modules
-    socket,
-  },
-});
-Step 3: Integrate Socket Actions with Authentication Actions
-Now, you need to dispatch socket actions from within the authUser actions whenever the user logs in or logs out.
-
-javascript
-Copy code
-// store/modules/authUser.js
-// ... rest of your authUser module
-
-const actions = {
-  // ... other actions
-  LOGIN: async ({ commit, dispatch }, credentials) => {
-    try {
-      let { accessToken, user } = await Auth.login(credentials);
-      commit('SET_ACCESS_TOKEN', accessToken);
-      commit('SET_AUTH_USER', user);
-  
-      // Establish socket connection
-      dispatch('socket/connectSocket', null, { root: true });
-      
-      return user;
-    } catch (error) {
-      throw error;
-    }
-  },  
-
-  LOGOUT: ({ commit, dispatch }) => {
-    // Disconnect the socket connection
-    dispatch('socket/disconnectSocket', null, { root: true });
-  
-    Auth.logout();
-    commit('CLEAR_ACCESS_TOKEN');
-    commit('SET_AUTH_USER', null);
-  },
-};
-
-// ... rest of the authUser module
-Step 4: Handle Socket Events in Your Components
-In your Vue components, you can now listen to the notifications getter to reactively display notifications when they are received through the socket.
-
-vue
-Copy code
-<template>
-  <!-- ... your component template ... -->
-</template>
-
-<script>
-import { mapGetters } from 'vuex';
-
-export default {
-  // ... component options ...
-  computed: {
-    ...mapGetters({
-      notifications: 'socket/notifications',
-    }),
-  },
-};
-</script>
-Step 5: Ensure Socket Connection is Made After Login
-After a successful login, make sure to dispatch the action to connect the socket. This should already be covered in the LOGIN action in the authUser module as shown earlier.
-
-With this setup, you have a dedicated Vuex module for managing Socket.IO connections, which is integrated with your existing authentication flow. This ensures that notifications are managed centrally and can be accessed throughout your application via Vuex.
-
-
-<br>
-
-#Notification list 
-
-```
-<template>
-  <section class="notification-section">
-    <div class="notification-box">
-      <ul class="notification-list">
-        <li v-for="notification in notifications" :key="notification.id" @click="goToReference(notification)">
-          <span class="notification-content" :class="{ unread: !notification.read }">
-            <span class="status-indicator" v-if="!notification.read"></span>
-            {{ notification.content }}
-          </span>
-          <small class="notification-date">{{ formatDate(notification.createdAt) }}</small>
-        </li>
-      </ul>
-    </div>
-  </section>
-</template>
-
-<script>
-// ... your script remains the same
-</script>
-
-<style lang="scss" scoped>
-.notification-section {
-  .notification-box {
-    width: 18rem;
-    // ... other styles
-  }#
-
-
-  .notification-list {
-    list-style: none;
-    padding: 0;
-    margin: 0;
-
-    li {
-      padding: 0.5rem;
-      border-bottom: 1px solid #eee;
-      margin-bottom: 0.5rem;
-      &:last-child {
-        border-bottom: none;
-      }
-
-      &:hover {
-        background-color: #f9f9f9;
-      }
-    }
-
-    .notification-content {
-      display: block;
-      color: #333;
-      margin-right: 0.5rem;
-
-      &.unread {
-        font-weight: bold;
-      }
-    }
-
-    .status-indicator {
-      display: inline-block;
-      width: 6px;
-      height: 6px;
-      border-radius: 50%;
-      background-color: black;
-      margin-right: 0.5rem;
-    }
-
-    .notification-date {
-      display: block;
-      color: #999;
-      font-size: 0.85rem;
-    }
+const progressIcon = (model: string) => {
+  if (props.status?.syncedModels.includes(model)) {
+    return 'sync_success';
   }
-}
-</style>
-
-```
-
-
-
-<br>
-
-```
-<template>
-  <section class="notification-section">
-    <ul class="notification-list">
-      <!-- ...rest of the code -->
-    </ul>
-    <button 
-      class="view-more-button" 
-      @click="loadMoreNotifications" 
-      v-if="canLoadMore"
-    >
-      View More
-    </button>
-  </section>
-</template>
-
-<script>
-// ... rest of your script
-export default {
-  // ... rest of your component options
-  computed: {
-    // ... other computed properties,
-    canLoadMore() {
-      return this.notifications.length < this.totalNotifications;
-    }
+  if (props.status?.currentModelName === model) {
+    return 'sync_in_progress';
   }
-  // ...
-};
-</script>
-
-<style scoped>
-.notification-section {
-  /* ...existing styles... */
-}
-
-.view-more-button {
-  padding: 10px 20px;
-  margin-top: 10px;
-  background-color: #5c6bc0; /* Choose a color that fits your design */
-  color: white;
-  border: none;
-  border-radius: 4px;
-  cursor: pointer;
-  font-size: 0.9rem;
-  font-weight: bold;
-  transition: background-color 0.3s ease;
-
-  &:hover {
-    background-color: #3949ab; /* Darker shade for hover state */
-  }
-
-  &:focus {
-    outline: none;
-  }
-
-  &:disabled {
-    background-color: #9fa8da; /* Lighter shade for disabled state */
-    cursor: not-allowed;
-  }
-}
-</style>
-```
-
-```
-export default {
-  // ... other component options
-  
-  computed: {
-    canLoadMore() {
-      console.log('Current notifications:', this.notifications.length);
-      console.log('Total notifications:', this.totalNotifications);
-      return this.notifications.length < this.totalNotifications;
-    }
-    // ... other computed properties
-  },
-  
-  // When fetching notifications, after setting them:
-  methods: {
-    loadMoreNotifications() {
-      // ... method logic to load more notifications
-      console.log('Updated notifications:', this.notifications.length);
-    },
-    // ... other methods
-  },
-  
-  // ... rest of the script
-};
-```
-
-
-
-```javascript
-// store/modules/notifications.js
-
-const actions = {
-  async fetchNotifications({ commit }, { page, size }) {
-    try {
-      const response = await axios.get(`/notifications?page=${page}&size=${size}`);
-      const { notifications, total } = response.data; // Ensure you are extracting 'total' correctly
-      if (page === 1) {
-        commit("SET_NOTIFICATIONS", notifications); // Only set notifications
-        commit("SET_TOTAL_NOTIFICATIONS", total); // Set total separately
-      } else {
-        commit("APPEND_NOTIFICATIONS", { notifications, total }); // Append and set total
-      }
-    } catch (error) {
-      console.error("Error fetching notifications:", error);
-    }
-  },
-  clearNotifications({ commit }) {
-    commit("CLEAR_NOTIFICATIONS");
-  },
+  return 'sync_no_progress';
 };
 
-const mutations = {
-  APPEND_NOTIFICATIONS: (state, { notifications, total }) => {
-    state.notifications.push(...notifications); // Ensure this does not introduce duplicates
-    state.totalNotifications = total; // Always update total
-  },
-  SET_TOTAL_NOTIFICATIONS: (state, total) => {
-    state.totalNotifications = total;
-  },
-  SET_NOTIFICATIONS: (state, notifications) => {
-    state.notifications = notifications;
-  },
-  CLEAR_NOTIFICATIONS: (state) => {
-    state.notifications = [];
-  },
-};
-```
-
-```
-// In your Vue component
-import { mapState } from 'vuex';
-
-export default {
-  computed: {
-    ...mapState({
-      notifications: state => state.notifications.notifications, // Adjust based on your store structure
-      totalNotifications: state => state.notifications.totalNotifications // Adjust based on your store structure
-    }),
-    canLoadMore() {
-      console.log("Total notifications in component:", this.totalNotifications);
-      return this.notifications.length < this.totalNotifications;
-    }
-  },
-  // other component options
-};
-
-```
-<br>
-
-```
-// Vuex Actions in notifications.js
-const actions = {
-  async fetchNotifications({ commit }, { page, size }) {
-    try {
-      const response = await axios.get(`/notifications?page=${page}&size=${size}`);
-      const { notifications, total } = response.data;
-      if (page === 1) {
-        commit('SET_NOTIFICATIONS', notifications); // Reset notifications on first page
-      } else {
-        commit('APPEND_NOTIFICATIONS', { notifications, total });
-      }
-      commit('SET_TOTAL_NOTIFICATIONS', total); // Set total notifications count
-    } catch (error) {
-      console.error("Error fetching notifications:", error);
-    }
-  },
-};
-
-```
-
-#New
-```
-.created() {
-  this.fetchNotifications({
-    page: this.currentPage,
-    size: this.pageSize,
-  });
-},
-```
-<br>
-
-```
-// Vuex Actions
-const actions = {
-  async fetchNotifications({ commit }, { page, size }) {
-    try {
-      const response = await axios.get(`/notifications?page=${page}&size=${size}`);
-      const { notifications, total } = response.data;
-      if (page === 1) {
-        commit('SET_NOTIFICATIONS', notifications); // Resets notifications on the first page
-      } else {
-        commit('APPEND_NOTIFICATIONS', { notifications, total });
-      }
-      commit('SET_TOTAL_NOTIFICATIONS', total); // Sets total notifications count
-    } catch (error) {
-      console.error("Error fetching notifications:", error);
-    }
-  },
-};
-```
-
-
-
-<br>
-
-```javascript
-// If the Vuex module is namespaced, include the namespace
-import { mapState } from 'vuex';
-
-export default {
-  computed: {
-    ...mapState('notificationsModule', [ // replace 'notificationsModule' with your actual namespace
-      'notifications',
-      'totalNotifications'
-    ]),
-    canLoadMore() {
-      console.log("Total notifications in component:", this.totalNotifications); // Debugging output
-      return this.notifications.length < this.totalNotifications;
-    }
-  },
-  created() {
-    this.fetchNotifications({
-      page: this.currentPage,
-      size: this.pageSize,
-    });
-  },
-};
-
-```
-
-<br>
-```javascript
-// Vuex Mutations
-const mutations = {
-  SET_TOTAL_NOTIFICATIONS(state, total) {
-    console.log('Setting total notifications:', total);
-    state.totalNotifications = total;
-  },
-  // other mutations
-};
-```
-
-
-
-```css
-.notification-list li {
-  display: flex;
-  align-items: center;
-  padding: 0.5rem 0;
-  border-bottom: 1px solid #eee;
-  margin-bottom: 0.5rem;
-  position: relative;
-
-  &:last-child {
-    border-bottom: none;
-    margin-bottom: 0;
-  }
-}
-
-.status-indicator {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background-color: black;
-  margin-right: 10px; /* Space between the indicator and content */
-  flex-shrink: 0; /* Prevents the indicator from shrinking */
-}
-
-.notification-content {
-  flex-grow: 1;
-  display: flex;
-  align-items: center;
-  transition: margin-left 0.3s ease;
-
-  &.unread + .status-indicator {
-    display: none;
-  }
-
-  &.unread {
-    margin-left: 18px; /* Adjust this value to the size of your status-indicator including its margins */
-  }
-}
-```
-
-```
-<li v-for="notification in notifications" :key="notification.id" @click="markAsRead(notification)">
-  <span class="status-indicator" v-if="!notification.read"></span>
-  <span :class="{ 'unread': !notification.read }" class="notification-content">
-    {{ notification.content }}
-  </span>
-</li>=
-
-
-```
-```javascript
-methods: {
-  markAsRead(notification) {
-    // Dispatch an action or commit a mutation to update the notification's 'read' status in the Vuex store
-    this.$store.dispatch('markNotificationAsRead', notification.id);
-  },
-  // ... other methods
-}
-```
-
-
-```
-
-<template>
-  <v-btn v-if="authUser" text :to="'/profile'" class="navBtn mr-4">
-    {{ userInitials }}
-  </v-btn>
-</template>
-
-<script>
-export default {
-  computed: {
-    authUser() {
-      const user = this.$store.getters.authUser;
-      return user;
-    },
-    userInitials() {
-      if (this.authUser && this.authUser.fullName) {
-        const names = this.authUser.fullName.split(' ');
-        const initials = names.map(name => name[0]).join('');
-        return initials;
-      }
+const icon = computed<string>(() => {
+  switch (props.dialogType) {
+    case SyncDialogType.Requested:
+      return 'sync';
+    case SyncDialogType.Successful:
+      return 'sync_success';
+    case SyncDialogType.Unsuccessful:
+      return 'warning';
+    case SyncDialogType.InitialisingFailed:
+      return 'warning';
+    case SyncDialogType.Offline:
+      return 'cloud-offline';
+    default:
       return '';
-    },
-  },
-};
-</script>
-
-<style lang="scss" scoped>
-/* Your styles here */
-</style>
-```
-
-
-```
-
-<template>
-  <v-btn v-if="authUser" class="rounded-btn" :to="'/profile'">
-    {{ userInitials }}
-  </v-btn>
-</template>
-
-<script>
-export default {
-  computed: {
-    authUser() {
-      return this.$store.getters.authUser;
-    },
-    userInitials() {
-      if (this.authUser && this.authUser.fullName) {
-        const names = this.authUser.fullName.split(' ');
-        const initials = names.map(name => name[0]).join('');
-        return initials;
-      }
-      return '';
-    },
-  },
-};
-</script>
-
-<style lang="scss" scoped>
-.rounded-btn {
-  border-radius: 50%; /* Makes the button round */
-  aspect-ratio: 1 / 1; /* Ensures the width and height are always equal */
-  padding: 8px; /* Adjust the padding to your preference */
-  min-width: 0; /* Remove the minimum width to allow the button to be smaller */
-  
-  // These colors are placeholders, replace with your actual color values
-  color: #b08d57; /* Gold color for text */
-  border: 2px solid #b08d57; /* Gold color for border */
-  font-weight: 600; /* Semi-bold font weight for the text */
-
-  &:hover {
-    background-color: rgba(#b08d57, 0.1); /* Light gold background on hover */
   }
+});
+
+const iconColor = computed<IconColor>(() => {
+  switch (props.dialogType) {
+    case SyncDialogType.Requested:
+      return 'text';
+    case SyncDialogType.Successful:
+      return 'success';
+    case SyncDialogType.Unsuccessful:
+      return 'danger';
+    case SyncDialogType.InitialisingFailed:
+      return 'danger';
+    case SyncDialogType.Offline:
+      return 'warning';
+    default:
+      return 'text';
+  }
+});
+
+const isSyncRequestDialog = computed<boolean>(() => props.dialogType === SyncDialogType.Requested);
+
+const isSyncProcessingDialog = computed<boolean>(
+  () =>
+    props.dialogType === SyncDialogType.Processing ||
+    props.dialogType === SyncDialogType.Initialising
+);
+
+const isSyncSuccessfulDialog = computed<boolean>(
+  () => props.dialogType === SyncDialogType.Successful
+);
+
+const isSyncUnsuccessfulDialog = computed<boolean>(
+  () => props.dialogType === SyncDialogType.Unsuccessful
+);
+
+const isSyncFailedDialog = computed<boolean>(
+  () => props.dialogType === SyncDialogType.InitialisingFailed
+);
+
+const startDisabled = computed<boolean>(
+  () =>
+    appStore.hasBlockingTasks ||
+    props.status?.syncProgressStatus === MXSyncProgressStatus.Synchronizing
+);
+
+function start() {
+  const email = userDetails.value?.email;
+  if (!email) return;
+
+  productsStore.syncProduct({
+    productId: productsStore.activeProductId,
+    userId: email,
+    editorType: editorStore.editorType
+  });
+
+  // Emit progress update to the toastService
+  const toastId = Symbol('sync-toast');
+  const totalModels = props.status?.allModels.length || 0;
+  toastService.displaySpinner(toastId, t('sync.spinnerTitle'), 0, totalModels);
+
+  const interval = setInterval(() => {
+    const progress = props.status?.syncedModels.length || 0;
+    console.log(`Progress: ${progress}, Total Models: ${totalModels}`); // Add log for progress and totalModels
+    toastService.displaySpinner(toastId, t('sync.spinnerTitle'), progress, totalModels);
+    
+    if (progress >= totalModels) {
+      clearInterval(interval);
+      toastService.dismiss(toastId);
+    }
+  }, 1000);
 }
-</style>
 
-
+watch(
+  () => connectionsStore.isOffline,
+  nowOffline => {
+    if (nowOffline)
+      eventService.emit(EventType.OpenDialog, {
+        dialogName: DialogNames.Sync,
+        options: {
+          props: {
+            dialogType: SyncDialogType.Offline
+          },
+          modal: true
+        }
+      });
+  }
+);
+</script>
 ```
+
+### Step 2: Verify the toast service updates the `SpinnerToast` component correctly
+
+Add logs in `toast.ts` to ensure it's receiving the correct values:
+
+```ts
+public displaySpinner(id: symbol, header: string, progress: number, totalModels: number): symbol {
+  console.log(`Displaying spinner: ${header}, Progress: ${progress}, Total Models: ${totalModels}`); // Add log for spinner display
+  return this.displayWithId(id, ToastType.Spinner, { title: header, progress, totalModels });
+}
+```
+
+### Step 3: Ensure the `SpinnerToast` component displays the progress and totalModels correctly
+
+Add logs in `SpinnerToast.vue` to verify it receives the correct props:
+
+```vue
+<script setup lang="ts">
+import { onBeforeUnmount, onMounted } from 'vue';
+import { useI18n } from 'vue-i18n';
+
+import AppIconButton from '@/components/common/icon/IconButton.vue';
+import AppHorizontalSpinner from '@/components/common/spinner/HorizontalSpinner.vue';
+
+import { ToastEvent, toastService } from '@/services/toast.js';
+
+defineOptions({ name: 'SpinnerToast' });
+
+const props = withDefaults(
+  defineProps<{
+    id: symbol;
+    title: string;
+    titleVars?: Record<string, unknown>;
+    dismissable?: boolean;
+    progress: number;
+    totalModels: number;
+  }>(),
+  {
+    titleVars: () => ({}),
+    dismissable: false,
+    progress: 0,
+    totalModels: 0
+  }
+);
+
+const emit = defineEmits<{ dismiss: [id: symbol] }>();
+
+const { t, te } = useI18n();
+
+const dismiss = () => emit('dismiss', props.id);
+
+const onDismiss = (id: symbol) => {
+  if (id === props.id) {
+    dismiss();
+  }
+};
+
+const titleText: string = te(props.title) ? t(props.title, props.titleVars) : props.title;
+
+onMounted(() => {
+  toastService.on(ToastEvent.Dismiss, onDismiss);
+  console.log(`Mounted SpinnerToast with Progress: ${props.progress}, Total Models: ${props.totalModels}`); // Add log for mounted props
+});
+
+onBeforeUnmount(() => {
+  toastService.off(ToastEvent.Dismiss, onDismiss);
+});
+</script>
+```
+
+### Adding i18n Keys
+
+Ensure the i18n keys are correctly defined in your translation files.
+
+**en.json**:
+```json
+{
+  "common": {
+    "dismiss": "Dismiss",
+    "start": "Start",
+    "close": "Close",
+    "help
