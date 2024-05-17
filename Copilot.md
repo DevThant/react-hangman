@@ -293,3 +293,137 @@ Ensure the i18n keys are correctly defined in your translation files.
     "start": "Start",
     "close": "Close",
     "help
+    
+```
+
+ Symbol('sync-toast');
+  const totalModels = props.status?.allModels.length || 0;
+  toastService.displaySpinner(toastId, t('sync.spinnerTitle'), 0, totalModels);
+
+  const interval = setInterval(() => {
+    const progress = props.status?.syncedModels.length || 0;
+    console.log(`Progress: ${progress}, Total Models: ${totalModels}`); // Add log for progress and totalModels
+    toastService.displaySpinner(toastId, t('sync.spinnerTitle'), progress, totalModels);
+    
+    if (progress >= totalModels) {
+      clearInterval(interval);
+      toastService.dismiss(toastId);
+    }
+  }, 1000);
+}
+
+watch(
+  () => connectionsStore.isOffline,
+  nowOffline => {
+    if (nowOffline)
+      eventService.emit(EventType.OpenDialog, {
+        dialogName: DialogNames.Sync,
+        options: {
+          props: {
+            dialogType: SyncDialogType.Offline
+          },
+          modal: true
+        }
+      });
+  }
+);
+</script>
+
+<style scoped>
+.sync-progress {
+  color: var(--font-disabled-color);
+  fill: var(--font-disabled-color);
+
+  li {
+    display: flex;
+    align-items: center;
+
+    .icon {
+      margin-right: var(--base-spacing-1);
+    }
+  }
+
+  .syncing {
+    color: var(--font-color);
+    fill: var(--font-color);
+  }
+
+  .synced {
+    color: var (--success);
+    fill: var (--success);
+  }
+}
+
+.unsuccessful {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+
+  .unsuccessful-message {
+    display: flex;
+
+    a {
+      color: var(--link-color);
+    }
+
+    p {
+      padding-right: var(--base-spacing-1);
+    }
+  }
+
+  .failed-model {
+    display: flex;
+    align-items: center;
+    color: var(--danger);
+    fill: var(--danger);
+
+    p {
+      padding-left: var(--base-spacing-1);
+    }
+  }
+}
+
+.successful {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+
+  ul {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+
+    li {
+      display: flex;
+      align-items: center;
+      margin-bottom: var(--base-spacing-1);
+
+      .icon {
+        margin-right: var(--base-spacing-1);
+      }
+    }
+  }
+}
+</style>
+```
+
+### Verify `props.status` Data Structure
+
+Ensure that `props.status` has the following structure:
+
+```ts
+interface MXSyncProgressEvent {
+  allModels: string[];
+  syncedModels: string[];
+  currentModelName: string;
+  syncProgressStatus: MXSyncProgressStatus;
+}
+```
+
+Verify that `allModels` and `syncedModels` are arrays and that they are updated correctly during the synchronization process.
+
+### Update the Sync Process to Properly Update `props.status`
+
+Ensure the sync process properly updates `props.status`. If you're using a store to manage synchronization state, ensure that the store correctly updates `props.status`.
+
+If the problem persists, please share how `props.status` is being updated in the sync process, and we'll further refine the solution.
