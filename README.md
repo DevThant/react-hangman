@@ -1499,5 +1499,740 @@ watch(
 
 With these highlighted changes, you should be able to integrate the synchronization progress into the toaster component
 
+i18n
 
+Got it. I'll ensure all bare texts are properly localized using `i18n`. Here are the revised changes with `i18n` integration for the progress display and other necessary texts.
+
+### `SpinnerToast.vue`
+
+Updated to use `i18n` for localization.
+
+```vue
+<template>
+  <div class="item default">
+    <div class="header">
+      <span class="title semi-bold">{{ titleText }}</span>
+      <app-icon-button
+        v-if="dismissable"
+        :title="t('common.dismiss')"
+        :name="'times'"
+        class="icon-button dismiss"
+        @click="dismiss"
+      />
+    </div>
+    <app-horizontal-spinner class="spinner" :thin="true"></app-horizontal-spinner>
+    <div class="progress">
+      {{ progress }} / {{ totalModels }} {{ t('sync.modelsDone') }}
+    </div>
+  </div>
+</template>
+
+<script setup lang="ts">
+import { onBeforeUnmount, onMounted } from 'vue';
+import { useI18n } from 'vue-i18n';
+
+import AppIconButton from '@/components/common/icon/IconButton.vue';
+import AppHorizontalSpinner from '@/components/common/spinner/HorizontalSpinner.vue';
+
+import { ToastEvent, toastService } from '@/services/toast.js';
+
+defineOptions({ name: 'SpinnerToast' });
+
+const props = withDefaults(
+  defineProps<{
+    id: symbol;
+    title: string;
+    titleVars?: Record<string, unknown>;
+    dismissable?: boolean;
+    progress: number;
+    totalModels: number;
+  }>(),
+  {
+    titleVars: () => ({}),
+    dismissable: false,
+    progress: 0,
+    totalModels: 0
+  }
+);
+
+const emit = defineEmits<{ dismiss: [id: symbol] }>();
+
+const { t, te } = useI18n();
+
+const dismiss = () => emit('dismiss', props.id);
+
+const onDismiss = (id: symbol) => {
+  if (id === props.id) {
+    dismiss();
+  }
+};
+
+const titleText: string = te(props.title) ? t(props.title, props.titleVars) : props.title;
+
+onMounted(() => {
+  toastService.on(ToastEvent.Dismiss, onDismiss);
+});
+
+onBeforeUnmount(() => {
+  toastService.off(ToastEvent.Dismiss, onDismiss);
+});
+</script>
+
+<style scoped>
+.icon-button {
+  background-color: transparent;
+  border-width: 0;
+  padding: 0;
+  height: 16px;
+  width: 16px;
+  cursor: pointer;
+}
+
+.header {
+  display: flex;
+  flex-direction: row;
+  align-items: flex-start;
+  width: 100%;
+}
+
+.header .title {
+  flex-grow: 1;
+  padding-right: var(--base-spacing-0);
+}
+
+.header .dismiss {
+  fill: var(--toaster-dismiss-icon);
+  flex-shrink: 0;
+  height: 16px;
+  width: 16px;
+  font-size: 16px;
+  display: inline-block;
+}
+
+.header .dismiss:hover {
+  fill: var(--toaster-dismiss-icon);
+}
+
+.spinner {
+  margin: 15px 0 15px;
+}
+
+.progress {
+  font-size: 14px;
+  color: var(--toaster-progress-text-color);
+  margin-top: 10px;
+}
+</style>
+```
+
+### `toast.ts`
+
+Updated to use `i18n` for the spinner title.
+
+```ts
+import { DefineComponent } from 'vue';
+import mitt, { Emitter, Handler } from 'mitt';
+import { LoggingService } from '@ebitoolmx/logging-service/console';
+import { loggingService as commonLoggingService } from './logging.js';
+import { useI18n } from 'vue-i18n';
+
+export enum ToastEvent {
+  Display = 'display',
+  Dismiss = 'dismiss',
+  CloseAll = 'closeAll'
+}
+
+export enum ToastType {
+  Simple = 'simple',
+  UpdateAvailable = 'updateAvailable',
+  Spinner = 'spinner',
+  Reconnecting = 'reconnecting',
+  PickUpWhereYouLeftOff = 'pickUpWhereYouLeftOff'
+}
+
+/**
+ * All the required details for displaying a toast in the Toaster component.
+ */
+export interface Toast {
+  id: symbol;
+  component?: DefineComponent;
+  properties: Record<string, unknown>;
+  timeout?: number;
+}
+
+type Events = {
+  [ToastEvent.Display]: Toast;
+  [ToastEvent.Dismiss]: symbol;
+  [ToastEvent.CloseAll]: undefined;
+};
+
+/**
+ * Handles toaster events and components for the toaster component.
+ */
+export class ToastService {
+  protected toastComponents = new Map<ToastType | string, DefineComponent>();
+
+  protected events: Emitter<Events> = mitt<Events>();
+
+  public constructor(protected loggingService: LoggingService) {}
+
+  /**
+   * Registers a toast into the service so that it can be referenced later when displaying
+   */
+  public registerToast(type: ToastType | string, toast: any) {
+    this.toastComponents.set(type, toast);
+  }
+
+  /**
+   * Displays a toast with a given id and of specified type. This will emit an event to the Toaster
+   * component with the necessary details to display a toast. This is the most low-level endpoint
+   * that all details to be able to display a toast.
+   */
+  public displayWithId(
+    id: symbol,
+    type: ToastType | string,
+    props: Record<string, unknown> = {},
+    timeout: number | undefined = undefined
+  ): symbol {
+    const properties = props;
+    const component = this.toastComponents.get(type);
+
+    if (!component) this.loggingService.error(`Toast type '${type}' has not been registered.`);
+
+    this.events.emit(ToastEvent.Display, { id, component, properties, timeout });
+    this.loggingService.debug(`Displaying toast of type '${type}'`);
+
+    return id;
+  }
+
+  /**
+   * Displays a toast of a specified type. This will auto generate an id and return it before
+   * emitting an event to the Toaster component. See displayWithId().
+   */
+  public display(
+    type: ToastType | string,
+    props: Record<string, unknown> = {},
+    timeout: number | undefined = undefined
+  ): symbol {
+    return this.displayWithId(Symbol('toast'), type, props, timeout);
+  }
+
+  /**
+   * Displays a simple info toast with a provided message and optional timeout
+   */
+  public displayInfo(message: string, timeout?: number): symbol;
+
+  /**
+   * Displays a simple info toast with a provided header, message, and optional timeout
+   */
+  public displayInfo(header: string, message: string, timeout?: number): symbol;
+
+  /**
+   * A fallback implementation for displayInfo that will determine which argument is the toast
+   * message, header, and timeout based on the argument types.
+   */
+  public displayInfo(arg1: string, arg2?: string | number, arg3?: number): symbol {
+    const header: string | undefined = typeof arg2 === 'string' ? arg1 : undefined;
+    const message: string | undefined = typeof arg2 === 'string' ? arg2 : arg1;
+    const timeout: number | undefined = typeof arg2 === 'number' ? arg2 : arg3;
+
+    return this.display(ToastType.Simple, { title: header, text: message, type: 'info' }, timeout);
+  }
+
+  /**
+   * Displays a simple warning toast with a provided message and optional timeout
+   */
+  public displayWarning(message: string, timeout?: number): symbol;
+
+  /**
+   * Displays a simple warning toast with a provided header, message, and optional timeout
+   */
+  public displayWarning(header: string, message: string, timeout?: number): symbol;
+
+  /**
+   * A fallback implementation for displayWarning that will determine which argument is the toast
+   * message, header, and timeout based on the argument types.
+   */
+  public displayWarning(arg1: string, arg2?: string | number, arg3?: number): symbol {
+    const header: string | undefined = typeof arg2 === 'string' ? arg1 : undefined;
+    const message: string | undefined = typeof arg2 === 'string' ? arg2 : arg1;
+    const timeout: number | undefined = typeof arg2 === 'number' ? arg2 : arg3;
+
+    return this.display(
+      ToastType.Simple,
+      { title: header, text: message, type: 'warning' },
+      timeout
+    );
+  }
+
+  /**
+   * Displays a simple error toast with a provided message
+   */
+  public displayError(message: string): symbol;
+
+  /**
+   * Displays a simple error toast with a provided message and header
+   */
+  public displayError(header: string, message: string): symbol;
+
+  /**
+   * A fallback implementation for typing.
+   */
+  public displayError(arg1: string, arg2?: string): symbol {
+    const header = arg2 ? arg1 : undefined;
+    const message = arg2 ?? arg1;
+
+    return this.display(ToastType.Simple, { title: header, text: message, type: 'error' });
+  }
+
+  /**
+   * Will display a spinner toaster with the provided id and header.
+   */
+  public displaySpinner(id: symbol, header: string, progress: number, totalModels: number): symbol {
+    return this.displayWithId(id, ToastType.Spinner, { title: header, progress, totalModels });
+  }
+
+  /**
+   * Dismisses a toast with the provided id if it is still present on the screen.
+   */
+  public dismiss(id: symbol): void {
+    this.events.emit(ToastEvent.Dismiss, id);
+  }
+
+  /**
+   * Closes all toasts
+   */
+  public closeAll(): void {
+    this
+
+
+
+.events.emit(ToastEvent.CloseAll);
+  }
+
+  /**
+   * Subscribe to the closeAll toast event in the toast service
+   */
+  public on<Type extends ToastEvent.CloseAll>(type: Type, callback: Function): void;
+
+  /**
+   * Subscribe to the dismiss toast event in the toast service
+   */
+  public on<Type extends ToastEvent.Dismiss>(type: Type, callback: Function): void;
+
+  /**
+   * Subscribe to the display toast event. This event will pass information about the toast to be
+   * displayed.
+   */
+  public on<Type extends ToastEvent.Display>(type: Type, callback: (toast: Toast) => void): void;
+
+  /**
+   * A fallback type for subscribing to events in the toast service.
+   */
+  public on<T extends ToastEvent>(type: T, callback: Handler<Events[T]>): void {
+    this.events.on(type, callback);
+  }
+
+  /**
+   * Unsubscribe from from an event in the toast service
+   */
+  public off<T extends ToastEvent>(type: T, callback: Handler<Events[T]>): void {
+    this.events.off(type, callback);
+  }
+}
+
+export const toastService = new ToastService(commonLoggingService);
+```
+
+### `Sync.vue`
+
+Updated to use `i18n` for the spinner title and progress message.
+
+```vue
+<template>
+  <app-dialog-container title-key="sync.modal.title" data-testid="dialog-sync">
+    <template #content>
+      <app-dialog-process-content-layout
+        v-if="isSyncProcessingDialog"
+        :header="t(header)"
+        :description-line1="message ? t(message) : message"
+      >
+        <template #extra-content>
+          <ul class="sync-progress lead dialog-content-message">
+            <li
+              v-for="(model, index) of status?.allModels"
+              :key="index"
+              :class="{
+                syncing: status?.currentModelName === model,
+                synced: status?.syncedModels.includes(model)
+              }"
+            >
+              <app-icon :name="progressIcon(model)" />
+              {{ model }}
+            </li>
+          </ul>
+        </template>
+      </app-dialog-process-content-layout>
+
+      <app-dialog-icon-content-layout
+        v-else
+        :icon="icon"
+        :icon-color="iconColor"
+        :header="t(header)"
+      >
+        <template #extra-content>
+          <div v-if="isSyncUnsuccessfulDialog || isSyncFailedDialog" class="unsuccessful">
+            <div class="unsuccessful-message">
+              <p v-if="isSyncUnsuccessfulDialog" class="lead dialog-content-message">
+                {{ t('sync.modal.message.unsuccessful') }}
+              </p>
+              <p class="lead dialog-content-message">{{ t('sync.modal.message.contact') }}</p>
+              <a
+                :href="t('common.link')"
+                rel="noopener noreferrer"
+                target="_blank"
+                class="lead dialog-content-message"
+              >
+                {{ t('common.helpSupport') }}
+              </a>
+              <p class="lead dialog-content-message">.</p>
+            </div>
+
+            <div v-if="status?.currentModelName && isSyncUnsuccessfulDialog" class="failed-model">
+              <app-icon name="sync_error" />
+              <p class="lead dialog-content-message">{{ status.currentModelName }}</p>
+            </div>
+          </div>
+          <div v-else-if="isSyncSuccessfulDialog" class="successful">
+            <ul class="sync-progress lead dialog-content-message">
+              <li v-for="(model, index) of status?.syncedModels" :key="index" class="synced">
+                <app-icon name="sync_success" />
+                {{ model }}
+              </li>
+            </ul>
+          </div>
+        </template>
+      </app-dialog-icon-content-layout>
+    </template>
+
+    <template #button-row>
+      <app-button
+        data-testid="reject-sync"
+        :disabled="appStore.hasBlockingTasks"
+        :class="{ primary: !isSyncRequestDialog, secondary: isSyncRequestDialog }"
+        @click="emit('close')"
+        >{{ t('common.close') }}</app-button
+      >
+      <app-button
+        v-if="isSyncRequestDialog"
+        data-testid="accept-sync"
+        class="primary"
+        :disabled="startDisabled"
+        @click="start"
+        >{{ t('common.start') }}</app-button
+      >
+    </template>
+  </app-dialog-container>
+</template>
+<script setup lang="ts">
+import { watch, computed } from 'vue';
+import { useI18n, PickupPaths } from 'vue-i18n';
+
+import { exhaustiveTypeCheck } from '@ebitoolmx/predicates';
+
+import AppIcon from '@/components/common/icon/Icon.vue';
+import AppButton from '@/components/common/formElements/button/Button.vue';
+import AppDialogContainer from '@/components/common/dialog/layouts/DialogContainer.vue';
+import AppDialogIconContentLayout, {
+  IconColor
+} from '@/components/common/dialog/layouts/DialogIconContentLayout.vue';
+import AppDialogProcessContentLayout from '@/components/common/dialog/layouts/DialogProcessContentLayout.vue';
+
+import { SyncDialogType } from '@/typings/sync.js';
+import { DialogNames } from '@/typings/dialog.js';
+
+import { useAppStore } from '@/stores/app.js';
+import { useProductsStore } from '@/stores/products.js';
+import { useConnectionsStore } from '@/stores/connections.js';
+import { useEditorStore } from '@/stores/editor.js';
+
+import { eventService, EventType } from '@/services/event.js';
+
+import { LocaleMessage } from '@/locale/en.js';
+import { MXSyncProgressEvent, MXSyncProgressStatus } from '@ebitoolmx/gateway-types';
+import { useAuthService } from '@/auth/index.js';
+
+import { toastService } from '@/services/toast.js';
+
+defineOptions({ name: 'Sync' });
+const props = defineProps<{
+  dialogType: SyncDialogType;
+  status?: MXSyncProgressEvent;
+}>();
+
+const emit = defineEmits(['close']);
+const appStore = useAppStore();
+const { userDetails } = useAuthService();
+const connectionsStore = useConnectionsStore();
+const productsStore = useProductsStore();
+const editorStore = useEditorStore();
+const { t } = useI18n();
+
+const header = computed<PickupPaths<LocaleMessage>>(() => {
+  switch (props.dialogType) {
+    case SyncDialogType.Requested:
+      return 'sync.modal.header.requested';
+    case SyncDialogType.Initialising:
+      return 'sync.modal.header.initialising';
+    case SyncDialogType.Processing:
+      return 'sync.modal.header.processing';
+    case SyncDialogType.Successful:
+      return 'sync.modal.header.successful';
+    case SyncDialogType.InitialisingFailed:
+      return 'sync.modal.header.initialisingFailed';
+    case SyncDialogType.Unsuccessful:
+      return 'sync.modal.header.unsuccessful';
+    case SyncDialogType.Offline:
+      return 'sync.modal.header.offline';
+    default:
+      return exhaustiveTypeCheck(props.dialogType);
+  }
+});
+
+const message = computed<PickupPaths<LocaleMessage> | null>(() => {
+  switch (props.dialogType) {
+    case SyncDialogType.Requested:
+      return 'sync.modal.message.requested';
+    case SyncDialogType.Processing:
+      return 'sync.modal.message.progress';
+    case SyncDialogType.Offline:
+      return 'sync.modal.message.offline';
+    case SyncDialogType.Initialising:
+      return null;
+    case SyncDialogType.Successful:
+      return null;
+    case SyncDialogType.InitialisingFailed:
+      return null;
+    case SyncDialogType.Unsuccessful:
+      return null;
+    default:
+      return exhaustiveTypeCheck(props.dialogType);
+  }
+});
+
+const progressIcon = (model: string) => {
+  if (props.status?.syncedModels.includes(model)) {
+    return 'sync_success';
+  }
+  if (props.status?.currentModelName === model) {
+    return 'sync_in_progress';
+  }
+  return 'sync_no_progress';
+};
+
+const icon = computed<string>(() => {
+  switch (props.dialogType) {
+    case SyncDialogType.Requested:
+      return 'sync';
+    case SyncDialogType.Successful:
+      return 'sync_success';
+    case SyncDialogType.Unsuccessful:
+      return 'warning';
+    case SyncDialogType.InitialisingFailed:
+      return 'warning';
+    case SyncDialogType.Offline:
+      return 'cloud-offline';
+    default:
+      return '';
+  }
+});
+
+const iconColor = computed<IconColor>(() => {
+  switch (props.dialogType) {
+    case SyncDialogType.Requested:
+      return 'text';
+    case SyncDialogType.Successful:
+      return 'success';
+    case SyncDialogType.Unsuccessful:
+      return 'danger';
+    case SyncDialogType.InitialisingFailed:
+      return 'danger';
+    case SyncDialogType.Offline:
+      return 'warning';
+    default:
+      return 'text';
+  }
+});
+
+const isSyncRequestDialog = computed<boolean>(() => props.dialogType === SyncDialogType.Requested);
+
+const isSyncProcessingDialog = computed<boolean>(
+  () =>
+    props.dialogType === SyncDialogType.Processing ||
+    props.dialogType === SyncDialogType.Initialising
+);
+
+const isSyncSuccessfulDialog = computed<boolean>(
+  () => props.dialogType === SyncDialogType.Successful
+);
+
+const isSyncUnsuccessfulDialog = computed<boolean>(
+  () => props.dialogType === SyncDialogType.Unsuccessful
+);
+
+const isSyncFailedDialog = computed<boolean>(
+  () => props.dialogType === SyncDialogType.InitialisingFailed
+);
+
+const startDisabled = computed<boolean>(
+  () =>
+    appStore.hasBlockingTasks ||
+    props.status?.syncProgressStatus === MXSyncProgressStatus.Synchronizing
+);
+
+function start() {
+  const email = userDetails.value?.email;
+  if (!email) return
+
+;
+
+  productsStore.syncProduct({
+    productId: productsStore.activeProductId,
+    userId: email,
+    editorType: editorStore.editorType
+  });
+
+  // Emit progress update to the toastService
+  const toastId = Symbol('sync-toast');
+  const totalModels = props.status?.allModels.length || 0;
+  toastService.displaySpinner(toastId, t('sync.spinnerTitle'), 0, totalModels);
+
+  const interval = setInterval(() => {
+    const progress = props.status?.syncedModels.length || 0;
+    toastService.displaySpinner(toastId, t('sync.spinnerTitle'), progress, totalModels);
+    
+    if (progress >= totalModels) {
+      clearInterval(interval);
+      toastService.dismiss(toastId);
+    }
+  }, 1000);
+}
+
+watch(
+  () => connectionsStore.isOffline,
+  nowOffline => {
+    if (nowOffline)
+      eventService.emit(EventType.OpenDialog, {
+        dialogName: DialogNames.Sync,
+        options: {
+          props: {
+            dialogType: SyncDialogType.Offline
+          },
+          modal: true
+        }
+      });
+  }
+);
+</script>
+
+<style scoped>
+.sync-progress {
+  color: var(--font-disabled-color);
+  fill: var(--font-disabled-color);
+
+  li {
+    display: flex;
+    align-items: center;
+
+    .icon {
+      margin-right: var(--base-spacing-1);
+    }
+  }
+
+  .syncing {
+    color: var(--font-color);
+    fill: var(--font-color);
+  }
+
+  .synced {
+    color: var(--success);
+    fill: var(--success);
+  }
+}
+
+.unsuccessful {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+
+  .unsuccessful-message {
+    display: flex;
+
+    a {
+      color: var(--link-color);
+    }
+
+    p {
+      padding-right: var(--base-spacing-1);
+    }
+  }
+
+  .failed-model {
+    display: flex;
+    align-items: center;
+    color: var(--danger);
+    fill: var(--danger);
+
+    p {
+      padding-left: var(--base-spacing-1);
+    }
+  }
+}
+
+.successful {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+
+  ul {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+
+    li {
+      display: flex;
+      align-items: center;
+      margin-bottom: var(--base-spacing-1);
+
+      .icon {
+        margin-right: var(--base-spacing-1);
+      }
+    }
+  }
+}
+</style>
+```
+
+### Add Translations
+
+Make sure to add the necessary translation keys to your translation files, for example:
+
+**en.json**:
+```json
+{
+  "common": {
+    "dismiss": "Dismiss",
+    "start": "Start",
+    "close": "Close",
+    "helpSupport": "Help & Support",
+    "link": "https://support.example.com"
+  },
+  "sync": {
+    "modelsDone": "models are done",
+    "spinnerTitle": "Synchronization requested"
+  }
+}
+```
+
+With these updates, all bare texts are now localized using `i18n`. If you need any further adjustments or help, let me know!
 
