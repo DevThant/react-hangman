@@ -719,3 +719,272 @@ Ensure the sync process properly updates `props.status`. If you're using a store
 
 If the problem persists, please share how `props.status` is being updated in the sync process, and we'll further refine the solution.
 
+
+
+
+======================
+
+## Update
+
+ (newSyncedModels) => {
+      const progress = newSyncedModels.length;
+      console.log(`Progress: ${progress}, Total Models: ${totalModels}`); // Add log for progress and totalModels
+      toastService.displaySpinner(toastId, t('sync.spinnerTitle'), progress, totalModels);
+      
+      if (progress >= totalModels) {
+        toastService.dismiss(toastId);
+      }
+    },
+    { immediate: true, deep: true }
+  );
+}
+
+watch(
+  () => connectionsStore.isOffline,
+  nowOffline => {
+    if (nowOffline)
+      eventService.emit(EventType.OpenDialog, {
+        dialogName: DialogNames.Sync,
+        options: {
+          props: {
+            dialogType: SyncDialogType.Offline
+          },
+          modal: true
+        }
+      });
+  }
+);
+</script>
+
+<style scoped>
+.sync-progress {
+  color: var(--font-disabled-color);
+  fill: var(--font-disabled-color);
+
+  li {
+    display: flex;
+    align-items: center;
+
+    .icon {
+      margin-right: var(--base-spacing-1);
+    }
+  }
+
+  .syncing {
+    color: var(--font-color);
+    fill: var(--font-color);
+  }
+
+  .synced {
+    color: var(--success);
+    fill: var(--success);
+  }
+}
+
+.unsuccessful {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+
+  .unsuccessful-message {
+    display: flex;
+
+    a {
+      color: var(--link-color);
+    }
+
+    p {
+      padding-right: var(--base-spacing-1);
+    }
+  }
+
+  .failed-model {
+    display: flex;
+    align-items: center;
+    color: var(--danger);
+    fill: var(--danger);
+
+    p {
+      padding-left: var(--base-spacing-1);
+    }
+  }
+}
+
+.successful {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+
+  ul {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+
+    li {
+      display: flex;
+      align-items: center;
+      margin-bottom: var(--base-spacing-1);
+
+      .icon {
+        margin-right: var(--base-spacing-1);
+      }
+    }
+  }
+}
+</style>
+```
+
+### Step 2: Update `SpinnerToast.vue`
+
+Ensure `progress` and `totalModels` are correctly received and displayed in the `SpinnerToast` component:
+
+```vue
+<template>
+  <div class="item default">
+    <div class="header">
+      <span class="title semi-bold">{{ titleText }}</span>
+      <app-icon-button
+        v-if="dismissable"
+        :title="t('common.dismiss')"
+        :name="'times'"
+        class="icon-button dismiss"
+        @click="dismiss"
+      />
+    </div>
+    <app-horizontal-spinner class="spinner" :thin="true"></app-horizontal-spinner>
+    <div class="progress">
+      {{ progress }} / {{ totalModels }} {{ t('sync.modelsDone') }}
+    </div>
+  </div>
+</template>
+
+<script setup lang="ts">
+import { onBeforeUnmount, onMounted } from 'vue';
+import { useI18n } from 'vue-i18n';
+
+import AppIconButton from '@/components/common/icon/IconButton.vue';
+import AppHorizontalSpinner from '@/components/common/spinner/HorizontalSpinner.vue';
+
+import { ToastEvent, toastService } from '@/services/toast.js';
+
+defineOptions({ name: 'SpinnerToast' });
+
+const props = withDefaults(
+  defineProps<{
+    id: symbol;
+    title: string;
+    titleVars?: Record<string, unknown>;
+    dismissable?: boolean;
+    progress: number;
+    totalModels: number;
+  }>(),
+  {
+    titleVars: () => ({}),
+    dismissable: false,
+    progress: 0,
+    totalModels: 0
+  }
+);
+
+const emit = defineEmits<{ dismiss: [id: symbol] }>();
+
+const { t, te } = useI18n();
+
+const dismiss = () => emit('dismiss', props.id);
+
+const onDismiss = (id: symbol) => {
+  if (id === props.id) {
+    dismiss();
+  }
+};
+
+const titleText: string = te(props.title) ? t(props.title, props.titleVars) : props.title;
+
+onMounted(() => {
+  toastService.on(ToastEvent.Dismiss, onDismiss);
+  console.log(`Mounted SpinnerToast with Progress: ${props.progress}, Total Models: ${props.totalModels}`); // Add log for mounted props
+});
+
+onBeforeUnmount(() => {
+  toastService.off(ToastEvent.Dismiss, onDismiss);
+});
+</script>
+
+<style scoped>
+.icon-button {
+  background-color: transparent;
+  border-width: 0;
+  padding: 0;
+  height: 16px;
+  width: 16px;
+  cursor: pointer;
+}
+
+.header {
+  display: flex;
+  flex-direction: row;
+  align-items: flex-start;
+  width: 100%;
+}
+
+.header .title {
+  flex-grow: 1;
+  padding-right: var(--base-spacing-0);
+}
+
+.header .dismiss {
+  fill: var(--toaster-dismiss-icon);
+  flex-shrink: 0;
+  height: 16px;
+  width: 16px;
+  font-size: 16px;
+  display: inline-block;
+}
+
+.header .dismiss:hover {
+  fill: var(--toaster-dismiss-icon);
+}
+
+.spinner {
+  margin: 15px 0 15px;
+}
+
+.progress {
+  font-size: 14px;
+  color: var(--toaster-progress-text-color);
+  margin-top: 10px;
+}
+</style>
+```
+
+### Step 3: Ensure Translation Keys are Added
+
+Ensure the translation keys are added to your translation files:
+
+**en.json**:
+```json
+{
+  "common": {
+    "dismiss": "Dismiss",
+    "start": "Start",
+    "close": "Close",
+    "helpSupport": "Help & Support",
+    "link": "https://support.example.com"
+  },
+  "sync": {
+    "modelsDone": "models are done",
+    "spinnerTitle": "Synchronization requested"
+  }
+}
+```
+
+### Verify the Implementation
+
+Run the synchronization process and check the console logs:
+
+1. **Logs from `Sync.vue`:** Ensure `progress` and `totalModels` are logged correctly.
+2. **Logs from `toastService`:** Verify the toast service receives the correct values.
+3. **Logs from `SpinnerToast.vue`:** Ensure the component receives the correct props and displays the progress.
+
+If you encounter specific issues or need further debugging, share the console log outputs, and we can continue refining the implementation.
+
