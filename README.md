@@ -1,3 +1,43 @@
+Let's address the issue with updating the shared state (`syncProgressState`) from `Sync.vue`. It seems that the values are not being updated properly. We will ensure that the reactive state is correctly updated from `Sync.vue`.
+
+### Steps to Ensure Proper State Update
+
+1. **Verify the Imports and Paths**: Ensure that the import paths are correct in both `Sync.vue` and `Spinner.vue`.
+2. **Ensure Reactivity in the Shared State**: Use `reactive` to make sure the shared state is reactive and can be updated.
+3. **Update the Shared State Properly in `Sync.vue`**: Use appropriate Vue reactivity methods to update the state.
+
+### Verify Imports and Paths
+
+Ensure that the paths to `syncProgressState` are correct:
+
+**Sync.vue:**
+```ts
+import { syncProgressState } from '@/store/syncProgressState';
+```
+
+**Spinner.vue:**
+```ts
+import { syncProgressState } from '@/store/syncProgressState';
+```
+
+### Ensure Reactivity in the Shared State
+
+**syncProgressState.ts:**
+```ts
+import { reactive } from 'vue';
+
+export const syncProgressState = reactive({
+  totalModels: 0,
+  syncedModels: 0,
+});
+```
+
+### Update the Shared State Properly in `Sync.vue`
+
+In `Sync.vue`, ensure that we are correctly updating the shared state when synchronization status changes.
+
+**Sync.vue:**
+```vue
 <template>
   <app-dialog-container title-key="sync.modal.title" data-testid="dialog-sync">
     <template #content>
@@ -237,7 +277,7 @@ const isSyncFailedDialog = computed<boolean>(
 
 const startDisabled = computed<boolean>(
   () =>
-      appStore.hasBlockingTasks ||
+    appStore.hasBlockingTasks ||
     props.status?.syncProgressStatus === MXSyncProgressStatus.Synchronizing
 );
 
@@ -480,9 +520,6 @@ onBeforeUnmount(() => {
 - **Ensure `Spinner.vue` correctly displays the progress values from the shared state.**
 
 This setup should ensure the synchronization progress is updated and displayed correctly for collaborators. If you encounter any issues or need further adjustments, please let me know!
-
-
-
 
 
 
