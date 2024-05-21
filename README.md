@@ -1,4 +1,215 @@
-Understood. Let's focus on ensuring the shared state (`syncProgressState`) is updated correctly in `Sync.vue`. We will verify the part where we update the state directly in the `start` function and the watcher.
+Given that your project uses Pinia for state management, let's refactor the `syncProgressState` into a Pinia store to align with your project's structure.
+
+### Step-by-Step Implementation
+
+1. **Create a Pinia Store for Sync Progress**
+2. **Update `Sync.vue` to Use the Pinia Store**
+3. **Update `Spinner.vue` to Use the Pinia Store**
+
+### Step 1: Create a Pinia Store for Sync Progress
+
+Create a new file `syncProgressStore.ts` in the `stores` directory.
+
+**syncProgressStore.ts:**
+```ts
+import { defineStore } from 'pinia';
+import { ref, computed } from 'vue';
+
+export const useSyncProgressStore = defineStore('syncProgress', () => {
+  const totalModels = ref<number>(0);
+  const syncedModels = ref<number>(0);
+
+  // Getters
+  const total = computed(() => totalModels.value);
+  const synced = computed(() => syncedModels.value);
+
+  // Actions
+  const setTotalModels = (total: number) => {
+    totalModels.value = total;
+  };
+
+  const setSyncedModels = (synced: number) => {
+    syncedModels.value = synced;
+  };
+
+  return {
+    total,
+    synced,
+    setTotalModels,
+    setSyncedModels,
+  };
+});
+
+if (import.meta.hot) {
+  import.meta.hot.accept(acceptHMRUpdate(useSyncProgressStore, import.meta.hot));
+}
+```
+
+### Step 2: Update `Sync.vue` to Use the Pinia Store
+
+In `Sync.vue`, import and use the Pinia store to update the synchronization progress.
+
+**Sync.vue:**
+```vue
+<script setup lang="ts">
+import { watch, computed } from 'vue';
+import { PickupPaths, useI18n } from 'vue-i18n';
+import { useSyncProgressStore } from '@/stores/syncProgressStore'; // Import the Pinia store
+
+import AppIcon from '@/components/common/icon/Icon.vue';
+import AppButton from '@/components/common/formElements/button/Button.vue';
+import AppDialogContainer from '@/components/common/dialog/layouts/DialogContainer.vue';
+import AppDialogIconContentLayout, {
+  IconColor
+} from '@/components/common/dialog/layouts/DialogIconContentLayout.vue';
+import AppDialogProcessContentLayout from '@/components/common/dialog/layouts/DialogProcessContentLayout.vue';
+
+import { SyncDialogType } from '@/typings/sync.js';
+import { DialogNames } from '@/typings/dialog.js';
+
+import { useAppStore } from '@/stores/app.js';
+import { useProductsStore } from '@/stores/products.js';
+import { useConnectionsStore } from '@/stores/connections.js';
+import { useEditorStore } from '@/stores/editor.js';
+
+import { eventService, EventType } from '@/services/event.js';
+
+import { LocaleMessage } from '@/locale/en.js';
+import { MXSyncProgressEvent, MXSyncProgressStatus } from '@ebitoolmx/gateway-types';
+import { useAuthService } from '@/auth/index.js';
+
+defineOptions({ name: 'Sync' });
+const props = defineProps<{
+  dialogType: SyncDialogType;
+  status?: MXSyncProgressEvent;
+}>();
+
+const emit = defineEmits(['close']);
+const appStore = useAppStore();
+const { userDetails } = useAuthService();
+const connectionsStore = useConnectionsStore();
+const productsStore = useProductsStore();
+const editorStore = useEditorStore();
+const { t } = useI18n();
+
+const syncProgressStore = useSyncProgressStore(); // Use the Pinia store
+
+function start() {
+  const email = userDetails.value?.email;
+  if (!email) return;
+
+  productsStore.syncProduct({
+    productId: productsStore.activeProductId,
+    userId: email,
+    editorType: editorStore.editorType
+  });
+
+  // Update shared state with initial progress data
+  syncProgressStore.setTotalModels(props.status?.allModels.length || 0);
+  syncProgressStore.setSyncedModels(props.status?.syncedModels.length || 0);
+}
+
+watch(
+  () => props.status,
+  (newStatus) => {
+    if (newStatus) {
+      // Update shared state whenever the status changes
+      syncProgressStore.setTotalModels(newStatus.allModels.length);
+      syncProgressStore.setSyncedModels(newStatus.syncedModels.length);
+    }
+  },
+  { immediate: true, deep: true }
+);
+
+watch(
+  () => connectionsStore.isOffline,
+  nowOffline => {
+    if (nowOffline)
+      eventService.emit(EventType.OpenDialog, {
+        dialogName: DialogNames.Sync,
+        options: {
+          props: {
+            dialogType: SyncDialogType.Offline
+          },
+          modal: true
+        }
+      });
+  }
+);
+</script>
+```
+
+### Step 3: Update `Spinner.vue` to Use the Pinia Store
+
+In `Spinner.vue`, import and use the Pinia store to get the synchronization progress.
+
+**Spinner.vue:**
+```vue
+<script setup lang="ts">
+import { computed } from 'vue';
+import { useSyncProgressStore } from '@/stores/syncProgressStore'; // Import the Pinia store
+
+import AppIconButton from '@/components/common/icon/IconButton.vue';
+import AppHorizontalSpinner from '@/components/common/spinner/HorizontalSpinner.vue';
+
+import { ToastEvent, toastService } from '@/services/toast.js';
+import { useI18n } from 'vue-i18n';
+
+defineOptions({ name: 'SpinnerToast' });
+
+const props = withDefaults(
+  defineProps<{
+    id: symbol;
+    title: string;
+    titleVars?: Record<string, unknown>;
+    dismissable?: boolean;
+  }>(),
+  {
+    titleVars: () => ({}),
+    dismissable: false
+  }
+);
+
+const emit = defineEmits<{ dismiss: [id: symbol] }>();
+
+const { t, te } = useI18n();
+
+const syncProgressStore = useSyncProgressStore(); // Use the Pinia store
+
+const dismiss = () => emit('dismiss', props.id);
+
+const onDismiss = (id: symbol) => {
+  if (id === props.id) {
+    dismiss();
+  }
+};
+
+const titleText: string = te(props.title) ? t(props.title, props.titleVars) : props.title;
+const progressText = computed(() => `${syncProgressStore.synced} / ${syncProgressStore.total} models are done`); // Computed property for progress text
+
+onMounted(() => {
+  toastService.on(ToastEvent.Dismiss, onDismiss);
+});
+
+onBeforeUnmount(() => {
+  toastService.off(ToastEvent.Dismiss, onDismiss);
+});
+</script>
+```
+
+### Summary
+
+1. **Created a Pinia store for synchronization progress (`syncProgressStore.ts`).**
+2. **Updated `Sync.vue` to use the Pinia store for updating synchronization progress.**
+3. **Updated `Spinner.vue` to use the Pinia store for displaying synchronization progress.**
+
+This setup aligns with your project's state management approach using Pinia and ensures that the synchronization progress is correctly updated and displayed. If you encounter any issues or need further adjustments, please let me know!
+
+
+============================
+
+
+#Understood. Let's focus on ensuring the shared state (`syncProgressState`) is updated correctly in `Sync.vue`. We will verify the part where we update the state directly in the `start` function and the watcher.
 
 ### Step-by-Step Fix
 
