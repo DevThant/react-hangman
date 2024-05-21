@@ -1,3 +1,220 @@
+Understood. Let's focus on ensuring the shared state (`syncProgressState`) is updated correctly in `Sync.vue`. We will verify the part where we update the state directly in the `start` function and the watcher.
+
+### Step-by-Step Fix
+
+1. **Ensure the Shared State is Imported Correctly**: Verify the import statement.
+2. **Update the Shared State in the `start` Function**: Verify the state updates.
+3. **Use the Watcher to Update the Shared State**: Verify reactivity.
+
+### Ensure the Shared State is Imported Correctly
+
+First, make sure the import statement is correct and placed at the top of `Sync.vue`:
+
+```ts
+import { syncProgressState } from '@/store/syncProgressState';
+```
+
+### Update the Shared State in the `start` Function
+
+Ensure the state updates in the `start` function are correctly updating the reactive state. Here’s the updated part:
+
+```ts
+function start() {
+  const email = userDetails.value?.email;
+  if (!email) return;
+
+  productsStore.syncProduct({
+    productId: productsStore.activeProductId,
+    userId: email,
+    editorType: editorStore.editorType
+  });
+
+  // Update shared state with initial progress data
+  syncProgressState.totalModels = props.status?.allModels.length || 0;
+  syncProgressState.syncedModels = props.status?.syncedModels.length || 0;
+}
+```
+
+Place this function definition within your `<script setup>` block:
+
+**Sync.vue:**
+```vue
+<script setup lang="ts">
+import { watch, computed } from 'vue';
+import { PickupPaths, useI18n } from 'vue-i18n';
+import { syncProgressState } from '@/store/syncProgressState'; // Import the shared state
+
+import AppIcon from '@/components/common/icon/Icon.vue';
+import AppButton from '@/components/common/formElements/button/Button.vue';
+import AppDialogContainer from '@/components/common/dialog/layouts/DialogContainer.vue';
+import AppDialogIconContentLayout, {
+  IconColor
+} from '@/components/common/dialog/layouts/DialogIconContentLayout.vue';
+import AppDialogProcessContentLayout from '@/components/common/dialog/layouts/DialogProcessContentLayout.vue';
+
+import { SyncDialogType } from '@/typings/sync.js';
+import { DialogNames } from '@/typings/dialog.js';
+
+import { useAppStore } from '@/stores/app.js';
+import { useProductsStore } from '@/stores/products.js';
+import { useConnectionsStore } from '@/stores/connections.js';
+import { useEditorStore } from '@/stores/editor.js';
+
+import { eventService, EventType } from '@/services/event.js';
+
+import { LocaleMessage } from '@/locale/en.js';
+import { MXSyncProgressEvent, MXSyncProgressStatus } from '@ebitoolmx/gateway-types';
+import { useAuthService } from '@/auth/index.js';
+
+defineOptions({ name: 'Sync' });
+const props = defineProps<{
+  dialogType: SyncDialogType;
+  status?: MXSyncProgressEvent;
+}>();
+
+const emit = defineEmits(['close']);
+const appStore = useAppStore();
+const { userDetails } = useAuthService();
+const connectionsStore = useConnectionsStore();
+const productsStore = useProductsStore();
+const editorStore = useEditorStore();
+const { t } = useI18n();
+
+function start() {
+  const email = userDetails.value?.email;
+  if (!email) return;
+
+  productsStore.syncProduct({
+    productId: productsStore.activeProductId,
+    userId: email,
+    editorType: editorStore.editorType
+  });
+
+  // Update shared state with initial progress data
+  syncProgressState.totalModels = props.status?.allModels.length || 0;
+  syncProgressState.syncedModels = props.status?.syncedModels.length || 0;
+}
+```
+
+### Use the Watcher to Update the Shared State
+
+Ensure the watcher updates the state reactively:
+
+**Sync.vue:**
+```ts
+watch(
+  () => props.status,
+  (newStatus) => {
+    if (newStatus) {
+      // Update shared state whenever the status changes
+      syncProgressState.totalModels = newStatus.allModels.length;
+      syncProgressState.syncedModels = newStatus.syncedModels.length;
+    }
+  },
+  { immediate: true, deep: true }
+);
+```
+
+Place this watcher definition within your `<script setup>` block:
+
+**Sync.vue:**
+```vue
+<script setup lang="ts">
+import { watch, computed } from 'vue';
+import { PickupPaths, useI18n } from 'vue-i18n';
+import { syncProgressState } from '@/store/syncProgressState'; // Import the shared state
+
+import AppIcon from '@/components/common/icon/Icon.vue';
+import AppButton from '@/components/common/formElements/button/Button.vue';
+import AppDialogContainer from '@/components/common/dialog/layouts/DialogContainer.vue';
+import AppDialogIconContentLayout, {
+  IconColor
+} from '@/components/common/dialog/layouts/DialogIconContentLayout.vue';
+import AppDialogProcessContentLayout from '@/components/common/dialog/layouts/DialogProcessContentLayout.vue';
+
+import { SyncDialogType } from '@/typings/sync.js';
+import { DialogNames } from '@/typings/dialog.js';
+
+import { useAppStore } from '@/stores/app.js';
+import { useProductsStore } from '@/stores/products.js';
+import { useConnectionsStore } from '@/stores/connections.js';
+import { useEditorStore } from '@/stores/editor.js';
+
+import { eventService, EventType } from '@/services/event.js';
+
+import { LocaleMessage } from '@/locale/en.js';
+import { MXSyncProgressEvent, MXSyncProgressStatus } from '@ebitoolmx/gateway-types';
+import { useAuthService } from '@/auth/index.js';
+
+defineOptions({ name: 'Sync' });
+const props = defineProps<{
+  dialogType: SyncDialogType;
+  status?: MXSyncProgressEvent;
+}>();
+
+const emit = defineEmits(['close']);
+const appStore = useAppStore();
+const { userDetails } = useAuthService();
+const connectionsStore = useConnectionsStore();
+const productsStore = useProductsStore();
+const editorStore = useEditorStore();
+const { t } = useI18n();
+
+function start() {
+  const email = userDetails.value?.email;
+  if (!email) return;
+
+  productsStore.syncProduct({
+    productId: productsStore.activeProductId,
+    userId: email,
+    editorType: editorStore.editorType
+  });
+
+  // Update shared state with initial progress data
+  syncProgressState.totalModels = props.status?.allModels.length || 0;
+  syncProgressState.syncedModels = props.status?.syncedModels.length || 0;
+}
+
+watch(
+  () => props.status,
+  (newStatus) => {
+    if (newStatus) {
+      // Update shared state whenever the status changes
+      syncProgressState.totalModels = newStatus.allModels.length;
+      syncProgressState.syncedModels = newStatus.syncedModels.length;
+    }
+  },
+  { immediate: true, deep: true }
+);
+</script>
+```
+
+### Verification
+
+- **Ensure the `start` function is triggered correctly.**
+- **Ensure the watcher updates the `syncProgressState` whenever `props.status` changes.**
+
+If the shared state is still not updating, try logging the values to debug:
+
+```ts
+watch(
+  () => props.status,
+  (newStatus) => {
+    if (newStatus) {
+      console.log('New Status:', newStatus);
+      console.log('Updating syncProgressState');
+      syncProgressState.totalModels = newStatus.allModels.length;
+      syncProgressState.syncedModels = newStatus.syncedModels.length;
+    }
+  },
+  { immediate: true, deep: true }
+);
+```
+
+This should help ensure the state is updated correctly and reflect changes in `Spinner.vue`. If you encounter further issues, please let me know!
+
+=============
+
 Let's address the issue with updating the shared state (`syncProgressState`) from `Sync.vue`. It seems that the values are not being updated properly. We will ensure that the reactive state is correctly updated from `Sync.vue`.
 
 ### Steps to Ensure Proper State Update
