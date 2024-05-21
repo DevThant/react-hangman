@@ -1,4 +1,87 @@
+You should place the `syncProgressState.ts` file in a logical location within your project's directory structure. Typically, it would be placed in a directory that holds shared state or store files. Here is an example structure:
 
+```
+src/
+├── components/
+│   ├── common/
+│   │   ├── icon/
+│   │   ├── spinner/
+│   │   ├── IconButton.vue
+│   │   └── HorizontalSpinner.vue
+│   ├── toast/
+│   │   └── Spinner.vue
+├── services/
+│   ├── toast.js
+│   └── logging.js
+├── store/                     # A logical place for shared state
+│   └── syncProgressState.ts   # Shared state file
+├── views/
+│   ├── Sync.vue
+├── main.js
+```
+
+In this structure, the `store` directory is used for managing shared state across components, and the `syncProgressState.ts` file would be placed inside it.
+
+### Creating `syncProgressState.ts`
+
+Create a new file named `syncProgressState.ts` inside the `store` directory with the following content:
+
+**syncProgressState.ts:**
+```ts
+import { reactive } from 'vue';
+
+export const syncProgressState = reactive({
+  totalModels: 0,
+  syncedModels: 0,
+});
+```
+
+### Updating Imports
+
+Now, make sure you update the import paths in your components to reflect the correct location of `syncProgressState.ts`.
+
+**Sync.vue:**
+```ts
+import { syncProgressState } from '@/store/syncProgressState'; // Update the import path
+```
+
+**Spinner.vue:**
+```ts
+import { syncProgressState } from '@/store/syncProgressState'; // Update the import path
+```
+
+### Example of the File Structure
+
+Here’s how the file structure would look with the new shared state file:
+
+```
+src/
+├── components/
+│   ├── common/
+│   │   ├── icon/
+│   │   │   └── IconButton.vue
+│   │   ├── spinner/
+│   │   │   └── HorizontalSpinner.vue
+│   │   └── spinner/
+│   │       └── Spinner.vue
+├── services/
+│   ├── toast.js
+│   └── logging.js
+├── store/
+│   └── syncProgressState.ts   # Shared state file
+├── views/
+│   ├── Sync.vue
+├── main.js
+```
+
+By following this structure, you ensure that your shared state is organized and easily accessible across your application components. If you have any further questions or need additional help, feel free to ask!
+
+
+
+
+
+
+================================================
 Got it. Let's focus on passing the synchronization data (`totalModels` and `syncedModels`) to the `Spinner.vue` component directly without using any toast notifications in `Sync.vue`.
 
 ### Step-by-Step Implementation
