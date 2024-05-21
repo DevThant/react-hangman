@@ -1,3 +1,303 @@
+Let's debug and ensure that the `Sync.vue` component properly updates the Pinia store. Here are the steps to ensure correct interaction between `Sync.vue` and the `syncProgressStore`:
+
+1. **Ensure Pinia Store Setup in `Sync.vue`**: Ensure the `syncProgressStore` is correctly imported and used in `Sync.vue`.
+
+2. **Correctly Update the Store in `Sync.vue`**: Make sure the store's state is updated correctly during the sync process.
+
+3. **Verify Store State Updates in `Spinner.vue`**: Confirm that `Spinner.vue` properly reflects updates from the store.
+
+### Step-by-Step Implementation:
+
+#### 1. Ensure Pinia Store Setup in `Sync.vue`
+
+Ensure the Pinia store is correctly imported and used in `Sync.vue`.
+
+**Sync.vue**:
+```vue
+<script setup lang="ts">
+import { watch, computed } from 'vue';
+import { useI18n } from 'vue-i18n';
+import { useSyncProgressStore } from '@/stores/syncProgress'; // Ensure correct path
+import { useAuthService } from '@/auth/index.js';
+import { useAppStore } from '@/stores/app.js';
+import { useProductsStore } from '@/stores/products.js';
+import { useConnectionsStore } from '@/stores/connections.js';
+import { useEditorStore } from '@/stores/editor.js';
+import { toastService, ToastType } from '@/services/toast.js';
+import { SyncDialogType } from '@/typings/sync.js';
+import { DialogNames } from '@/typings/dialog.js';
+import { eventService, EventType } from '@/services/event.js';
+import AppIcon from '@/components/common/icon/Icon.vue';
+import AppButton from '@/components/common/formElements/button/Button.vue';
+import AppDialogContainer from '@/components/common/dialog/layouts/DialogContainer.vue';
+import AppDialogIconContentLayout, { IconColor } from '@/components/common/dialog/layouts/DialogIconContentLayout.vue';
+import AppDialogProcessContentLayout from '@/components/common/dialog/layouts/DialogProcessContentLayout.vue';
+import { LocaleMessage } from '@/locale/en.js';
+import { MXSyncProgressEvent, MXSyncProgressStatus } from '@ebitoolmx/gateway-types';
+
+const syncProgressStore = useSyncProgressStore();
+const { userDetails } = useAuthService();
+const appStore = useAppStore();
+const connectionsStore = useConnectionsStore();
+const productsStore = useProductsStore();
+const editorStore = useEditorStore();
+const { t } = useI18n();
+
+const props = defineProps<{
+  dialogType: SyncDialogType;
+  status?: MXSyncProgressEvent;
+}>();
+
+const emit = defineEmits(['close']);
+
+const header = computed(() => {
+  switch (props.dialogType) {
+    case SyncDialogType.Requested:
+      return 'sync.modal.header.requested';
+    case SyncDialogType.Initialising:
+      return 'sync.modal.header.initialising';
+    case SyncDialogType.Processing:
+      return 'sync.modal.header.processing';
+    case SyncDialogType.Successful:
+      return 'sync.modal.header.successful';
+    case SyncDialogType.InitialisingFailed:
+      return 'sync.modal.header.initialisingFailed';
+    case SyncDialogType.Unsuccessful:
+      return 'sync.modal.header.unsuccessful';
+    case SyncDialogType.Offline:
+      return 'sync.modal.header.offline';
+    default:
+      return '';
+  }
+});
+
+const message = computed(() => {
+  switch (props.dialogType) {
+    case SyncDialogType.Requested:
+      return 'sync.modal.message.requested';
+    case SyncDialogType.Processing:
+      return 'sync.modal.message.progress';
+    case SyncDialogType.Offline:
+      return 'sync.modal.message.offline';
+    case SyncDialogType.Initialising:
+    case SyncDialogType.Successful:
+    case SyncDialogType.InitialisingFailed:
+    case SyncDialogType.Unsuccessful:
+    default:
+      return null;
+  }
+});
+
+const progressIcon = (model: string) => {
+  if (props.status?.syncedModels.includes(model)) {
+    return 'sync_success';
+  }
+  if (props.status?.currentModelName === model) {
+    return 'sync_in_progress';
+  }
+  return 'sync_no_progress';
+};
+
+const icon = computed<string>(() => {
+  switch (props.dialogType) {
+    case SyncDialogType.Requested:
+      return 'sync';
+    case SyncDialogType.Successful:
+      return 'sync_success';
+    case SyncDialogType.Unsuccessful:
+    case SyncDialogType.InitialisingFailed:
+      return 'warning';
+    case SyncDialogType.Offline:
+      return 'cloud-offline';
+    default:
+      return '';
+  }
+});
+
+const iconColor = computed<IconColor>(() => {
+  switch (props.dialogType) {
+    case SyncDialogType.Requested:
+      return 'text';
+    case SyncDialogType.Successful:
+      return 'success';
+    case SyncDialogType.Unsuccessful:
+    case SyncDialogType.InitialisingFailed:
+      return 'danger';
+    case SyncDialogType.Offline:
+      return 'warning';
+    default:
+      return 'text';
+  }
+});
+
+const isSyncRequestDialog = computed<boolean>(() => props.dialogType === SyncDialogType.Requested);
+const isSyncProcessingDialog = computed<boolean>(() => props.dialogType === SyncDialogType.Processing || props.dialogType === SyncDialogType.Initialising);
+const isSyncSuccessfulDialog = computed<boolean>(() => props.dialogType === SyncDialogType.Successful);
+const isSyncUnsuccessfulDialog = computed<boolean>(() => props.dialogType === SyncDialogType.Unsuccessful);
+const isSyncFailedDialog = computed<boolean>(() => props.dialogType === SyncDialogType.InitialisingFailed);
+const startDisabled = computed<boolean>(() => appStore.hasBlockingTasks || props.status?.syncProgressStatus === MXSyncProgressStatus.Synchronizing);
+
+function start() {
+  const email = userDetails.value?.email;
+  if (!email) return;
+
+  productsStore.syncProduct({
+    productId: productsStore.activeProductId,
+    userId: email,
+    editorType: editorStore.editorType
+  });
+
+  // Update shared state with initial progress data
+  const totalModels = 5;
+  const syncedModels = 5;
+
+  syncProgressStore.setTotalModels(totalModels);
+  syncProgressStore.setSyncedModels(syncedModels);
+}
+
+watch(() => props.status, (newStatus) => {
+  if (newStatus) {
+    syncProgressStore.setTotalModels(newStatus.allModels.length);
+    syncProgressStore.setSyncedModels(newStatus.syncedModels.length);
+    if (userDetails.value?.email !== newStatus.initiator) {
+      toastService.display(ToastType.Spinner, {
+        title: 'Synchronising...',
+        syncedModels: newStatus.syncedModels.length,
+        totalModels: newStatus.allModels.length,
+      });
+    }
+  }
+}, { immediate: true, deep: true });
+
+watch(() => connectionsStore.isOffline, (nowOffline) => {
+  if (nowOffline) {
+    eventService.emit(EventType.OpenDialog, {
+      dialogName: DialogNames.Sync,
+      options: {
+        props: {
+          dialogType: SyncDialogType.Offline
+        },
+        modal: true
+      }
+    });
+  }
+});
+</script>
+
+<template>
+  <app-dialog-container title-key="sync.modal.title" data-testid="dialog-sync">
+    <template #content>
+      <app-dialog-process-content-layout v-if="isSyncProcessingDialog" :header="t(header)" :description-line1="message ? t(message) : message">
+        <template #extra-content>
+          <ul class="sync-progress lead dialog-content-message">
+            <li v-for="(model, index) of syncProgressStore.total" :key="index" :class="{ syncing: syncProgressStore.synced.includes(model), synced: syncProgressStore.synced.includes(model) }">
+              <app-icon :name="progressIcon(model)" />
+              {{ model }}
+            </li>
+          </ul>
+        </template>
+      </app-dialog-process-content-layout>
+
+      <app-dialog-icon-content-layout v-else :icon="icon" :icon-color="iconColor" :header="t(header)" :message-line1="message ? t(message) : message">
+        <template #extra-content>
+          <div v-if="isSyncUnsuccessfulDialog || isSyncFailedDialog" class="unsuccessful">
+            <div class="unsuccessful-message">
+              <p v-if="isSyncUnsuccessfulDialog" class="lead dialog-content-message">{{ t('sync.modal.message.unsuccessful') }}</p>
+              <p class="lead dialog-content-message">{{ t('sync.modal.message.contact') }}</p>
+              <a :href="t('common.link')" rel="noopener noreferrer" target="_blank" class="lead dialog-content-message">{{ t('common.helpSupport') }}</a>
+              <p class="lead dialog-content-message">.</p>
+            </div>
+
+            <div v-if="syncProgressStore.currentModelName && isSyncUnsuccessfulDialog" class="failed-model">
+              <app-icon name="sync_error" />
+              <p class="lead dialog-content-message">{{ syncProgressStore.currentModelName }}</p>
+            </div>
+          </div>
+          <div v-else-if="isSyncSuccessfulDialog">
+            <ul class="sync-progress lead dialog-content-message">
+              <li v-for="(model, index) of syncProgressStore.synced" :key="index" class="synced">
+                <app-icon name="sync_success" />
+                {{ model }}
+              </li>
+            </ul>
+          </div>
+        </template>
+      </app-dialog-icon-content-layout>
+    </template>
+
+    <template #button-row>
+      <app-button data-testid="reject-sync" :disabled="appStore.hasBlockingTasks" :class="{ primary: !isSyncRequestDialog, secondary: isSyncRequestDialog }" @click="emit('close')">{{ t('common.close') }}</app-button>
+      <app
+
+-button v-if="isSyncRequestDialog" data-testid="accept-sync" class="primary" :disabled="startDisabled" @click="start">{{ t('common.start') }}</app-button>
+    </template>
+  </app-dialog-container>
+</template>
+
+<style scoped>
+.sync-progress {
+  color: var(--font-disabled-color);
+  fill: var(--font-disabled-color);
+
+  li {
+    display: flex;
+    align-items: center;
+
+    .icon {
+      margin-right: var(--base-spacing-1);
+    }
+  }
+
+  .syncing {
+    color: var(--font-color);
+    fill: var(--font-color);
+  }
+
+  .synced {
+    color: var(--success);
+    fill: var(--success);
+  }
+}
+
+.unsuccessful {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+
+  .unsuccessful-message {
+    display: flex;
+
+    a {
+      color: var(--link-color);
+    }
+
+    p {
+      padding-right: var(--base-spacing-1);
+    }
+  }
+
+  .failed-model {
+    display: flex;
+    align-items: center;
+    color: var(--danger);
+    fill: var(--danger);
+
+    p {
+      padding-left: var(--base-spacing-1);
+    }
+  }
+}
+</style>
+```
+
+### Summary:
+1. **Sync.vue**: Ensures the Pinia store is correctly imported and updates the store during the sync process.
+2. **SyncProgressStore**: Properly stores and manages sync progress.
+3. **Spinner.vue**: Reflects updates from the Pinia store.
+
+Please test these changes and let me know if there are any further issues or if adjustments are needed.
+--------------
+
 Given that your project uses Pinia for state management, let's refactor the `syncProgressState` into a Pinia store to align with your project's structure.
 
 ### Step-by-Step Implementation
