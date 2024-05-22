@@ -36,7 +36,7 @@ So these are the codes.
 Sync.vue
 //src/components/common/dialog/Sync.vue
 
-
+```vue
 <template>
   <app-dialog-container title-key="sync.modal.title" data-testid="dialog-sync">
     <template #content>
@@ -344,11 +344,11 @@ watch(
   }
 }
 </style>
-
+```
 
 Spinner.vue
 //src/components/common/toast/Spinner.vue
-
+```vue
 <template>
   <div class="item default">
     <div class="header">
@@ -475,11 +475,13 @@ if (import.meta.hot) {
 
 Below are the optionals but maybe they'll provide useful information.
 
+```
+
 Toaster.vue
 //src/components/common/toaster/Toaster.vue
 
 
-
+```vue
 <template>
   <transition-group
     v-if="displayedToasts.length"
@@ -585,11 +587,11 @@ onBeforeUnmount(() => {
   opacity: 0;
 }
 </style>
-
+```
 Toast.ts
 //src/services/toast.ts
 
-
+```vue
 
 import { DefineComponent } from 'vue';
 import mitt, { Emitter, Handler } from 'mitt';
@@ -764,3 +766,5 @@ export class ToastService {
   }
 }
 export const toastService = new ToastService(commonLoggingService);
+
+```
