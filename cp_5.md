@@ -1,3 +1,168 @@
+To ensure that the `syncStore` is initialized before `spinner.vue` attempts to access it, you can implement a check or wait mechanism to delay the mount of the spinner until the store is ready. One way to achieve this is to add a check in the spinner component to wait until the store status is initialized before proceeding with rendering or watching the status.
+
+Here are the steps to implement this:
+
+1. **Add a readiness state to syncStore**: You can add a boolean state to track if the store is ready.
+
+### syncStore.ts
+```typescript
+import { defineStore } from 'pinia';
+import { MXSyncProgressEvent } from '@ebitoolmx/gateway-types';
+
+export const useSyncStore = defineStore('sync', {
+  state: () => ({
+    status: null as MXSyncProgressEvent | null,
+    isReady: false // Add this state to track readiness
+  }),
+  actions: {
+    setStatus(newStatus: MXSyncProgressEvent) {
+      this.status = newStatus;
+      this.isReady = true; // Set readiness to true when status is updated
+    }
+  }
+});
+```
+
+2. **Modify spinner.vue to wait for store readiness**: Implement a mechanism to wait until the store is ready before performing operations.
+
+### Spinner.vue
+```vue
+<template>
+  <div v-if="syncStore.isReady" class="item default">
+    <div class="header">
+      <span class="title semi-bold">{{ combinedMessage }}</span>
+      <app-icon-button
+        v-if="dismissable"
+        :title="t('common.dismiss')"
+        :name="'times'"
+        class="icon-button dismiss"
+        @click="dismiss"
+      />
+    </div>
+    <app-horizontal-spinner class="spinner" :thin="true"></app-horizontal-spinner>
+  </div>
+  <div v-else class="item default">
+    <!-- Optionally, you can show a loading spinner or some placeholder while waiting -->
+    <app-horizontal-spinner class="spinner" :thin="true"></app-horizontal-spinner>
+  </div>
+</template>
+
+<script setup lang="ts">
+import { ref, watch, computed, onMounted, onBeforeUnmount } from 'vue';
+import AppIconButton from '@/components/common/icon/IconButton.vue';
+import AppHorizontalSpinner from '@/components/common/spinner/HorizontalSpinner.vue';
+import { ToastEvent, toastService } from '@/services/toast.js';
+import { useI18n } from 'vue-i18n';
+import { useSyncStore } from '@/stores/syncStore';
+
+defineOptions({ name: 'SpinnerToast' });
+
+const props = withDefaults(
+  defineProps<{
+    id: symbol;
+    title: string;
+    titleVars?: Record<string, unknown>;
+    dismissable?: boolean;
+  }>(),
+  {
+    titleVars: () => ({}),
+    dismissable: false
+  }
+);
+
+const emit = defineEmits<{ dismiss: [id: symbol] }>();
+const { t, te } = useI18n();
+const syncStore = useSyncStore();
+const dismiss = () => emit('dismiss', props.id);
+
+const onDismiss = (id: symbol) => {
+  if (id === props.id) {
+    dismiss();
+  }
+};
+
+const titleText = computed(() => te(props.title) ? t(props.title, props.titleVars) : props.title);
+const progressMessage = ref('');
+
+watch(
+  () => syncStore.status,
+  (newStatus) => {
+    if (newStatus) {
+      console.log('Updating progress message with new store status:', newStatus);
+      progressMessage.value = `${newStatus.syncedModels.length}/${newStatus.allModels.length} models are done.`;
+    } else {
+      console.log('syncStore.status is undefined or null');
+    }
+  },
+  { immediate: true }
+);
+
+const combinedMessage = computed(() => {
+  return `${titleText.value}\n${progressMessage.value}`;
+});
+
+onMounted(() => {
+  console.log('Spinner mounted and listening for events');
+  toastService.on(ToastEvent.Dismiss, onDismiss);
+  console.log('syncStore status on mount:', syncStore.status);
+});
+
+onBeforeUnmount(() => {
+  console.log('Spinner before unmount and removing event listeners');
+  toastService.off(ToastEvent.Dismiss, onDismiss);
+});
+</script>
+
+<style scoped>
+.icon-button {
+  background-color: transparent;
+  border-width: 0;
+  padding: 0;
+  height: 16px;
+  width: 16px;
+  cursor: pointer;
+}
+
+.header {
+  display: flex;
+  flex-direction: row;
+  align-items: flex-start;
+  width: 100%;
+}
+
+.header .title {
+  flex-grow: 1;
+  padding-right: var(--base-spacing-0);
+}
+
+.header .dismiss {
+  fill: var(--toaster-dismiss-icon);
+  flex-shrink: 0;
+  height: 16px;
+  width: 16px;
+  font-size: 16px;
+  display: inline-block;
+}
+
+.progress-info {
+  margin-top: 10px;
+}
+
+.spinner {
+  margin: 15px 0 15px;
+}
+</style>
+```
+
+### Explanation:
+1. **syncStore.ts**: Added an `isReady` state to track whether the store status has been initialized.
+2. **Spinner.vue**: Added a conditional check in the template to render the content only if `syncStore.isReady` is `true`. If not, it shows a placeholder spinner. 
+
+This approach ensures that the spinner component waits until the `syncStore` is initialized and ready before attempting to access its status.
+
+
+--------------
+
 Given that the current approach using an event bus isn't working as expected, we can consider another approach to ensure `Spinner.vue` receives the necessary sync progress updates. Let's use a shared store via Pinia to manage the sync state. This will ensure that any component that needs to access the sync state, including `Spinner.vue`, can do so reactively.
 
 ### Step-by-Step Solution
