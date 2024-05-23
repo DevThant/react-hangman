@@ -1,3 +1,145 @@
+To combine both messages into one and ensure the progress message is shown, we need to adjust how the message is composed and displayed in `Spinner.vue`. We will concatenate the existing message (`titleText`) and the progress message (`progressMessage`).
+
+Here is the updated code for `Spinner.vue`:
+
+1. Combine `titleText` and `progressMessage` into a single computed property.
+2. Display this combined message in the template.
+
+### Updated `Spinner.vue`
+
+```vue
+<template>
+  <div class="item default">
+    <div class="header">
+      <span class="title semi-bold">{{ combinedMessage }}</span>
+      <app-icon-button
+        v-if="dismissable"
+        :title="t('common.dismiss')"
+        :name="'times'"
+        class="icon-button dismiss"
+        @click="dismiss"
+      />
+    </div>
+    <app-horizontal-spinner class="spinner" :thin="true"></app-horizontal-spinner>
+  </div>
+</template>
+
+<script setup lang="ts">
+import { ref, onBeforeUnmount, onMounted, computed } from 'vue';
+
+import AppIconButton from '@/components/common/icon/IconButton.vue';
+import AppHorizontalSpinner from '@/components/common/spinner/HorizontalSpinner.vue';
+
+import { ToastEvent, toastService } from '@/services/toast.js';
+import { useI18n } from 'vue-i18n';
+import { useSyncStore } from '@/stores/syncStore'; // Import the sync store
+
+defineOptions({ name: 'SpinnerToast' });
+
+const props = withDefaults(
+  defineProps<{
+    id: symbol;
+    title: string;
+    titleVars?: Record<string, unknown>;
+    dismissable?: boolean;
+  }>(),
+  {
+    titleVars: () => ({}),
+    dismissable: false
+  }
+);
+
+const emit = defineEmits<{ dismiss: [id: symbol] }>();
+
+const { t, te } = useI18n();
+
+const dismiss = () => emit('dismiss', props.id);
+
+const onDismiss = (id: symbol) => {
+  if (id === props.id) {
+    dismiss();
+  }
+};
+
+const titleText: string = te(props.title) ? t(props.title, props.titleVars) : props.title;
+
+const syncStore = useSyncStore(); // Use the sync store
+
+const progressMessage = computed(() => {
+  if (syncStore.status) {
+    return `${syncStore.status.syncedModels.length}/${syncStore.status.allModels.length} models are done.`;
+  }
+  return '';
+});
+
+const combinedMessage = computed(() => {
+  return `${titleText}\n${progressMessage.value}`;
+});
+
+onMounted(() => {
+  console.log('Spinner mounted and listening for events');
+  toastService.on(ToastEvent.Dismiss, onDismiss);
+});
+
+onBeforeUnmount(() => {
+  console.log('Spinner before unmount and removing event listeners');
+  toastService.off(ToastEvent.Dismiss, onDismiss);
+});
+</script>
+
+<style scoped>
+.icon-button {
+  background-color: transparent;
+  border-width: 0;
+  padding: 0;
+  height: 16px;
+  width: 16px;
+  cursor: pointer;
+}
+
+.header {
+  display: flex;
+  flex-direction: row;
+  align-items: flex-start;
+  width: 100%;
+}
+
+.header .title {
+  flex-grow: 1;
+  padding-right: var(--base-spacing-0);
+}
+
+.header .dismiss {
+  fill: var(--toaster-dismiss-icon);
+  flex-shrink: 0;
+  height: 16px;
+  width: 16px;
+  font-size: 16px;
+  display: inline-block;
+}
+
+.header .dismiss:hover {
+  fill: var(--toaster-dismiss-icon);
+}
+
+.spinner {
+  margin: 15px 0 15px;
+}
+</style>
+```
+
+### Explanation
+
+1. **Combined Message:**
+   - The `combinedMessage` computed property concatenates `titleText` and `progressMessage`. This ensures both messages are displayed together in the toast.
+
+2. **Template Update:**
+   - The template now uses `combinedMessage` instead of `titleText`.
+
+This approach ensures both the original title message and the sync progress message are displayed in the same toast body. The `combinedMessage` property dynamically updates whenever `titleText` or `progressMessage` changes, ensuring real-time updates in the toast.
+
+
+----------
 Let's debug and ensure that the `Sync.vue` component properly updates the Pinia store. Here are the steps to ensure correct interaction between `Sync.vue` and the `syncProgressStore`:
 
 1. **Ensure Pinia Store Setup in `Sync.vue`**: Ensure the `syncProgressStore` is correctly imported and used in `Sync.vue`.
