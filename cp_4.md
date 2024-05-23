@@ -272,7 +272,7 @@ To resolve this issue, let's debug the steps to ensure that the progress events 
      height: 16px;
      width: 16
 
-px;
+   px;
      cursor: pointer;
    }
 
