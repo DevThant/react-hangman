@@ -1,3 +1,278 @@
+It's possible that the issue lies outside of the `spinner.vue` component, particularly in how the toaster or the overall application state is managed. To systematically diagnose and resolve the issue, let's take a few steps to ensure the sync status is correctly propagated and used by the spinner component. We'll look at the toaster and the overall application flow as well.
+
+### Step-by-Step Approach
+
+1. **Ensure Sync Store Initialization:**
+   Ensure the sync store is correctly initialized before any spinner toasts are displayed. 
+
+2. **Verify Toast Display Logic:**
+   Verify that the toaster is correctly displaying the spinner toast with the updated sync status.
+
+3. **Check Application State Management:**
+   Ensure the application state (including Pinia stores) is being managed correctly.
+
+Let's go through these steps with the code snippets to verify each part.
+
+### 1. Ensure Sync Store Initialization
+
+Make sure the sync store is initialized properly when the application starts.
+
+#### syncStore.ts
+
+```typescript
+import { defineStore } from 'pinia';
+import { MXSyncProgressEvent } from '@ebitoolmx/gateway-types';
+
+export const useSyncStore = defineStore('sync', {
+  state: () => ({
+    status: null as MXSyncProgressEvent | null,
+  }),
+  actions: {
+    setStatus(newStatus: MXSyncProgressEvent) {
+      this.status = newStatus;
+    },
+    initializeStatus() {
+      // Initialize or fetch the status if needed
+      if (!this.status) {
+        this.status = null; // Fetch or set initial status
+      }
+    }
+  }
+});
+```
+
+### 2. Verify Toast Display Logic
+
+Ensure that the toaster correctly handles the spinner toast and updates its content based on the sync status.
+
+#### Toaster.vue
+
+Make sure the toaster component is correctly displaying the spinner toast.
+
+```vue
+<template>
+  <transition-group
+    v-if="displayedToasts.length"
+    name="list"
+    tag="div"
+    class="container lead"
+    data-testid="toaster"
+  >
+    <component
+      :is="toast.component"
+      v-for="toast in displayedToasts"
+      :key="toast.id"
+      v-bind="{ id: toast.id, class: 'toast', ...toast.properties }"
+      @click="toast.properties.onClick"
+      @dismiss="removeToast"
+    />
+  </transition-group>
+</template>
+
+<script setup lang="ts">
+import { onBeforeUnmount, onMounted, ref, shallowRef } from "vue";
+import { toastService, ToastEvent, Toast } from "@/services/toast.js";
+
+defineOptions({ name: "Toaster" });
+
+const displayedToasts = shallowRef<Toast[]>([]);
+const toastTimeouts = ref<Map<symbol, number>>(new Map());
+
+const removeToast = (id: symbol): void => {
+  if (toastTimeouts.value.has(id)) {
+    window.clearTimeout(toastTimeouts.value.get(id));
+    toastTimeouts.value.delete(id);
+  }
+
+  displayedToasts.value = displayedToasts.value.filter(
+    (toast) => toast.id !== id
+  );
+};
+
+const displayToast = (toast: Toast): void => {
+  displayedToasts.value = [...displayedToasts.value, toast];
+
+  if (toast.timeout) {
+    const timeoutHandle = window.setTimeout(() => {
+      removeToast(toast.id);
+    }, toast.timeout);
+
+    toastTimeouts.value.set(toast.id, timeoutHandle);
+  }
+};
+
+const clearAllToasts = () => {
+  displayedToasts.value = [];
+};
+
+onMounted(() => {
+  toastService.on(ToastEvent.Display, displayToast);
+  toastService.on(ToastEvent.CloseAll, clearAllToasts);
+});
+
+onBeforeUnmount(() => {
+  toastService.off(ToastEvent.Display, displayToast);
+  toastService.off(ToastEvent.CloseAll, clearAllToasts);
+});
+</script>
+
+<style scoped>
+/* styles */
+</style>
+```
+
+### 3. Check Application State Management
+
+Ensure the application state is correctly managed and updated.
+
+#### Spinner.vue
+
+Update `spinner.vue` to wait for the sync store to be ready before performing its logic.
+
+```vue
+<template>
+  <div class="item default">
+    <div class="header">
+      <span class="title semi-bold">{{ combinedMessage }}</span>
+      <app-icon-button
+        v-if="dismissable"
+        :title="t('common.dismiss')"
+        :name="'times'"
+        class="icon-button dismiss"
+        @click="dismiss"
+      />
+    </div>
+    <app-horizontal-spinner class="spinner" :thin="true"></app-horizontal-spinner>
+  </div>
+</template>
+
+<script setup lang="ts">
+import { ref, onBeforeUnmount, onMounted, computed, watch } from 'vue';
+import AppIconButton from '@/components/common/icon/IconButton.vue';
+import AppHorizontalSpinner from '@/components/common/spinner/HorizontalSpinner.vue';
+import { ToastEvent, toastService } from '@/services/toast.js';
+import { useI18n } from 'vue-i18n';
+import { useSyncStore } from '@/stores/syncStore';
+
+defineOptions({ name: 'SpinnerToast' });
+
+const props = withDefaults(
+  defineProps<{
+    id: symbol;
+    title: string;
+    titleVars?: Record<string, unknown>;
+    dismissable?: boolean;
+  }>(),
+  {
+    titleVars: () => ({}),
+    dismissable: false
+  }
+);
+
+const emit = defineEmits<{ dismiss: [id: symbol] }>();
+
+const { t, te } = useI18n();
+const syncStore = useSyncStore();
+const dismiss = () => emit('dismiss', props.id);
+
+const onDismiss = (id: symbol) => {
+  if (id === props.id) {
+    dismiss();
+  }
+};
+
+const titleText = computed(() => (te(props.title) ? t(props.title, props.titleVars) : props.title));
+const progressMessage = ref('');
+
+const checkStoreReady = () => {
+  if (!syncStore.isReady) {
+    console.log('Store not ready, retrying...');
+    setTimeout(checkStoreReady, 100); // Retry every 100ms until store is ready
+  } else {
+    console.log('Store is ready:', syncStore.status);
+    // Watch for changes in the syncStore status
+    watch(
+      () => syncStore.status,
+      (newStatus) => {
+        if (newStatus) {
+          console.log('Updating progress message with new store status:', newStatus);
+          progressMessage.value = `${newStatus.syncedModels.length}/${newStatus.allModels.length} models are done.`;
+        } else {
+          console.log('syncStore.status is undefined or null');
+        }
+      },
+      { immediate: true }
+    );
+  }
+};
+
+const combinedMessage = computed(() => {
+  return `${titleText.value}\n${progressMessage.value}`;
+});
+
+onMounted(() => {
+  console.log('Spinner mounted and listening for events');
+  toastService.on(ToastEvent.Dismiss, onDismiss);
+  checkStoreReady(); // Start checking if the store is ready
+});
+
+onBeforeUnmount(() => {
+  console.log('Spinner before unmount and removing event listeners');
+  toastService.off(ToastEvent.Dismiss, onDismiss);
+});
+</script>
+
+<style scoped>
+.icon-button {
+  background-color: transparent;
+  border-width: 0;
+  padding: 0;
+  height: 16px;
+  width: 16px;
+  cursor: pointer;
+}
+
+.header {
+  display: flex;
+  flex-direction: row;
+  align-items: flex-start;
+  width: 100%;
+}
+
+.header .title {
+  flex-grow: 1;
+  padding-right: var(--base-spacing-0);
+}
+
+.header .dismiss {
+  fill: var(--toaster-dismiss-icon);
+  flex-shrink: 0;
+  height: 16px;
+  width: 16px;
+  font-size: 16px;
+  display: inline-block;
+}
+
+.progress-info {
+  margin-top: 10px;
+}
+
+.spinner {
+  margin: 15px 0 15px;
+}
+</style>
+```
+
+### Summary:
+- **syncStore.ts**: Ensure the store is initialized properly with an `initializeStatus` method.
+- **Toaster.vue**: Ensure the toaster component correctly handles the display of the spinner toast.
+- **Spinner.vue**: Introduced a retry mechanism to check if the store is ready before performing logic.
+
+By following these steps, you should be able to ensure that the `syncStore` is correctly initialized and available when the spinner component mounts. This approach should help to pinpoint the issue and ensure the spinner component correctly reflects the sync status.
+
+
+
+-----------
 To ensure that the `syncStore` is initialized before `spinner.vue` attempts to access it, you can implement a check or wait mechanism to delay the mount of the spinner until the store is ready. One way to achieve this is to add a check in the spinner component to wait until the store status is initialized before proceeding with rendering or watching the status.
 
 Here are the steps to implement this:
