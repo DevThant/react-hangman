@@ -1,3 +1,99 @@
+The issue arises because the default value for `status` does not conform to the complete `MXSyncProgressEvent` type. Let's provide a more comprehensive default value that includes all the required properties.
+
+Here is the corrected code for `Spinner.vue`:
+
+```vue
+<template>
+  <div class="item default">
+    <div class="header">
+      <span class="title semi-bold">{{ titleText }}</span>
+      <span class="progress">{{ syncedModels.length }}/{{ allModels.length }} models are done.</span>
+      <app-icon-button
+        v-if="dismissable"
+        :title="t('common.dismiss')"
+        :name="'times'"
+        class="icon-button dismiss"
+        @click="dismiss"
+      />
+    </div>
+    <app-horizontal-spinner class="spinner" :thin="true"></app-horizontal-spinner>
+  </div>
+</template>
+
+<script setup lang="ts">
+import { computed } from 'vue';
+import { onBeforeUnmount, onMounted, toRefs } from 'vue';
+import AppIconButton from '@/components/common/icon/IconButton.vue';
+import AppHorizontalSpinner from '@/components/common/spinner/HorizontalSpinner.vue';
+import { useI18n } from 'vue-i18n';
+import { ToastEvent, toastService } from '@/services/toast.js';
+import { MXSyncProgressEvent, MXSyncProgressStatus } from '@ebitoolmx/gateway-types';
+
+defineOptions({ name: 'SpinnerToast' });
+
+const props = withDefaults(
+  defineProps<{
+    id: symbol;
+    title: string;
+    titleVars?: Record<string, unknown>;
+    dismissable?: boolean;
+    status?: MXSyncProgressEvent;
+  }>(),
+  {
+    titleVars: () => ({}),
+    dismissable: false,
+    status: () => ({
+      allModels: [],
+      currentModelName: null,
+      syncProgressStatus: MXSyncProgressStatus.Initializing,
+      syncedBy: '',
+      syncedModels: [],
+      synchronizedProduct: ''
+    })
+  }
+);
+
+const { t, te } = useI18n();
+const { id, title, titleVars, dismissable, status } = toRefs(props);
+
+const dismiss = () => emit('dismiss', id.value);
+const onDismiss = (dismissId: symbol) => {
+  if (dismissId === id.value) {
+    dismiss();
+  }
+};
+
+const titleText = computed(() => (te(title.value) ? t(title.value, titleVars.value) : title.value));
+const syncedModels = computed(() => status.value.syncedModels || []);
+const allModels = computed(() => status.value.allModels || []);
+
+onMounted(() => {
+  toastService.on(ToastEvent.Dismiss, onDismiss);
+});
+onBeforeUnmount(() => {
+  toastService.off(ToastEvent.Dismiss, onDismiss);
+});
+</script>
+
+<style scoped>
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.progress {
+  font-weight: normal;
+  font-size: 0.9em;
+  margin-left: 10px;
+}
+</style>
+```
+
+This adjustment ensures that the default `status` object includes all required properties of the `MXSyncProgressEvent` type.
+
+-----
+
 Thanks for providing the `toastService` code. We will use it to emit synchronization events for our toaster. Let's integrate everything step-by-step.
 
 ### Step 1: Update `Spinner.vue`
