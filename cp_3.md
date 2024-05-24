@@ -1,3 +1,106 @@
+import { DefineComponent } from 'vue';
+import mitt, { Emitter, Handler } from 'mitt';
+import { LoggingService } from '@ebitoolmx/logging-service/console';
+import { loggingService as commonLoggingService } from './logging.js';
+import { MXSyncProgressEvent } from '@ebitoolmx/gateway-types';
+
+export enum ToastEvent {
+  Display = 'display',
+  Dismiss = 'dismiss',
+  CloseAll = 'closeAll'
+}
+
+export enum ToastType {
+  Simple = 'simple',
+  UpdateAvailable = 'updateAvailable',
+  Spinner = 'spinner',
+  Reconnecting = 'reconnecting',
+  PickUpWhereYouLeftOff = 'pickUpWhereYouLeftOff'
+}
+
+export interface Toast {
+  id: symbol;
+  component?: DefineComponent;
+  properties: Record<string, unknown>;
+  timeout?: number;
+}
+
+type Events = {
+  [ToastEvent.Display]: Toast;
+  [ToastEvent.Dismiss]: symbol;
+  [ToastEvent.CloseAll]: undefined;
+};
+
+export class ToastService {
+  protected toastComponents = new Map<ToastType, DefineComponent>();
+
+  protected events: Emitter<Events> = mitt<Events>();
+
+  public constructor(protected loggingService: LoggingService) {}
+
+  public registerToast(type: ToastType, toast: any) {
+    this.toastComponents.set(type, toast);
+  }
+
+  public displayWithId(
+    id: symbol,
+    type: ToastType,
+    props: Record<string=, unknown> = {},
+    timeout: number | undefined = undefined
+  ): symbol {
+    const properties = props;
+    const component = this.toastComponents.get(type);
+
+    if (!component) this.loggingService.error(`Toast type '${type}' has not been registered.`);
+
+    this.events.emit(ToastEvent.Display, { id, component, properties, timeout });
+    this.loggingService.debug(`Displaying toast of type '${type}'`);
+
+    return id;
+  }
+
+  public display(
+    type: ToastType,
+    props: Record<string, unknown> = {},
+    timeout: number | undefined = undefined
+  ): symbol {
+    return this.displayWithId(Symbol('toast'), type, props, timeout);
+  }
+
+  public displaySpinner(id: symbol, header: string, status: MXSyncProgressEvent): symbol {
+    return this.displayWithId(id, ToastType.Spinner, { title: header, status });
+  }
+
+  public dismiss(id: symbol): void {
+    this.events.emit(ToastEvent.Dismiss, id);
+  }
+
+  public closeAll(): void {
+    this.events.emit(ToastEvent.CloseAll);
+  }
+
+  public on<Type extends ToastEvent.CloseAll>(type: Type, callback: Function): void;
+
+  public on<Type extends ToastEvent.Dismiss>(type: Type, callback: Function): void;
+
+  public on<Type extends ToastEvent.Display>(type: Type, callback: (toast: Toast) => void): void;
+
+  public on<T extends ToastEvent>(type: T, callback: Handler<Events[T]>): void {
+    this.events.on(type, callback);
+  }
+
+  public off<T extends ToastEvent>(type: T, callback: Handler<Events[T]>): void {
+    this.events.off(type, callback);
+  }
+}
+
+export const toastService = new ToastService(commonLoggingService);
+```
+
+With these adjustments, you should be able to see the synchronization progress in the `Spinner.vue` component. Make sure to trigger the synchronization events correctly and verify the data flow through the components.
+
+------
+
 The issue arises because the default value for `status` does not conform to the complete `MXSyncProgressEvent` type. Let's provide a more comprehensive default value that includes all the required properties.
 
 Here is the corrected code for `Spinner.vue`:
