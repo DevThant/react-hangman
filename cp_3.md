@@ -1,3 +1,373 @@
+Let's ensure that the synchronization events are correctly emitting the progress data and that `Spinner.vue` is receiving this data. We'll take the following steps:
+
+1. **Ensure the synchronization event is emitted with the correct data.**
+2. **Verify that `Spinner.vue` is correctly receiving the data from the `toastService`.**
+
+### Step 1: Emitting the Synchronization Event
+
+First, let's make sure that when a sync event occurs, the correct data is being emitted. Update your synchronization logic to emit events using the `toastService`.
+
+For example, you can modify your sync logic like this:
+
+```typescript
+import { MXSyncProgressEvent } from '@ebitoolmx/gateway-types';
+import { toastService, ToastType } from '@/services/toast.js';
+
+// Function to trigger synchronization
+function triggerSync() {
+  const syncStatus: MXSyncProgressEvent = {
+    allModels: ['Model1', 'Model2', 'Model3'],
+    currentModelName: 'Model1',
+    syncProgressStatus: MXSyncProgressStatus.Synchronizing,
+    syncedBy: 'user123',
+    syncedModels: ['Model1'],
+    synchronizedProduct: 'product123',
+  };
+
+  // Emit the synchronization event
+  toastService.displaySpinner(Symbol('syncToast'), 'Synchronization in progress', syncStatus);
+}
+
+// Call the function to simulate sync trigger
+triggerSync();
+```
+
+### Step 2: Verifying `Spinner.vue` Receives the Data
+
+Ensure that `Spinner.vue` is correctly receiving the emitted data. We've already set up `Spinner.vue` to accept the `status` prop, so now we need to verify that the data flow is correct.
+
+### Full Example of the Integration
+
+1. **`Spinner.vue`:**
+
+Ensure `Spinner.vue` correctly receives and displays the progress data.
+
+```vue
+<template>
+  <div class="item default">
+    <div class="header">
+      <span class="title semi-bold">{{ titleText }}</span>
+      <span class="progress">{{ syncedModels.length }}/{{ allModels.length }} models are done.</span>
+      <app-icon-button
+        v-if="dismissable"
+        :title="t('common.dismiss')"
+        :name="'times'"
+        class="icon-button dismiss"
+        @click="dismiss"
+      />
+    </div>
+    <app-horizontal-spinner class="spinner" :thin="true"></app-horizontal-spinner>
+  </div>
+</template>
+
+<script setup lang="ts">
+import { computed } from 'vue';
+import { onBeforeUnmount, onMounted, toRefs } from 'vue';
+import AppIconButton from '@/components/common/icon/IconButton.vue';
+import AppHorizontalSpinner from '@/components/common/spinner/HorizontalSpinner.vue';
+import { useI18n } from 'vue-i18n';
+import { ToastEvent, toastService } from '@/services/toast.js';
+import { MXSyncProgressEvent, MXSyncProgressStatus } from '@ebitoolmx/gateway-types';
+
+defineOptions({ name: 'SpinnerToast' });
+
+const props = withDefaults(
+  defineProps<{
+    id: symbol;
+    title: string;
+    titleVars?: Record<string, unknown>;
+    dismissable?: boolean;
+    status?: MXSyncProgressEvent;
+  }>(),
+  {
+    titleVars: () => ({}),
+    dismissable: false,
+    status: () => ({
+      allModels: [],
+      currentModelName: null,
+      syncProgressStatus: MXSyncProgressStatus.Initializing,
+      syncedBy: '',
+      syncedModels: [],
+      synchronizedProduct: ''
+    })
+  }
+);
+
+const { t, te } = useI18n();
+const { id, title, titleVars, dismissable, status } = toRefs(props);
+
+const dismiss = () => emit('dismiss', id.value);
+const onDismiss = (dismissId: symbol) => {
+  if (dismissId === id.value) {
+    dismiss();
+  }
+};
+
+const titleText = computed(() => (te(title.value) ? t(title.value, titleVars.value) : title.value));
+const syncedModels = computed(() => status.value.syncedModels || []);
+const allModels = computed(() => status.value.allModels || []);
+
+onMounted(() => {
+  toastService.on(ToastEvent.Dismiss, onDismiss);
+});
+onBeforeUnmount(() => {
+  toastService.off(ToastEvent.Dismiss, onDismiss);
+});
+</script>
+
+<style scoped>
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.progress {
+  font-weight: normal;
+  font-size: 0.9em;
+  margin-left: 10px;
+}
+</style>
+```
+
+2. **`Toaster.vue`:**
+
+Ensure `Toaster.vue` passes the synchronization status to `Spinner.vue`.
+
+```vue
+<template>
+  <transition-group
+    v-if="displayedToasts.length"
+    name="list"
+    tag="div"
+    class="container lead"
+    data-testid="toaster"
+  >
+    <component
+      :is="toast.component"
+      v-for="toast in displayedToasts"
+      :key="toast.id"
+      v-bind="{ id: toast.id, class: 'toast', ...toast.properties }"
+      @click="toast.properties.onClick"
+      @dismiss="removeToast"
+    />
+  </transition-group>
+</template>
+
+<script setup lang="ts">
+import { onBeforeUnmount, onMounted, ref, shallowRef } from 'vue';
+import { toastService, ToastEvent, Toast } from '@/services/toast.js';
+
+defineOptions({ name: 'Toaster' });
+
+const displayedToasts = shallowRef<Toast[]>([]);
+const toastTimeouts = ref<Map<symbol, number>>(new Map());
+
+const removeToast = (id: symbol): void => {
+  if (toastTimeouts.value.has(id)) {
+    window.clearTimeout(toastTimeouts.value.get(id));
+    toastTimeouts.value.delete(id);
+  }
+  displayedToasts.value = displayedToasts.value.filter(toast => toast.id !== id);
+};
+
+const displayToast = (toast: Toast): void => {
+  displayedToasts.value = [...displayedToasts.value, toast];
+  if (toast.timeout) {
+    const timeoutHandle = window.setTimeout(() => {
+      removeToast(toast.id);
+    }, toast.timeout);
+    toastTimeouts.value.set(toast.id, timeoutHandle);
+  }
+};
+
+const clearAllToasts = () => {
+  displayedToasts.value = [];
+};
+
+onMounted(() => {
+  toastService.on(ToastEvent.Display, displayToast);
+  toastService.on(ToastEvent.CloseAll, clearAllToasts);
+});
+
+onBeforeUnmount(() => {
+  toastService.off(ToastEvent.Display, displayToast);
+  toastService.off(ToastEvent.CloseAll, clearAllToasts);
+});
+</script>
+
+<style scoped>
+.container {
+  position: absolute;
+  width: 100%;
+  min-height: 24px;
+  display: flex;
+  flex-direction: column;
+  align-content: flex-end;
+  z-index: 101;
+  background: transparent;
+  font-family: var(--font-family);
+}
+
+.container > * {
+  position: relative;
+  width: 100%;
+  display: block;
+  padding: var(--base-spacing-7);
+  margin: var(--base-spacing-0);
+  border-radius: var(--base-radius);
+  overflow: hidden;
+  z-index: 3;
+  color: var(--white);
+  background: var(--toaster-background-color-default);
+}
+
+.container > *.default {
+  background: var(--toaster-background-color-default);
+  border: 2px solid var(--toaster-border-color-default);
+}
+
+.container > *.info {
+  background: var(--toaster-background-color-info);
+  border: 0;
+}
+
+.container > *.warning {
+  background: var(--toaster-background-color-default);
+  border: 2px solid var(--toaster-border-color-warning);
+}
+
+.container > *.error {
+  background: var(--toaster-background-color-default);
+  border: 2px solid var(--toaster-border-color-error);
+}
+
+.list-enter-active {
+  transition: all 0.8s linear;
+}
+
+.list-leave-active {
+  transition: all 0.4s linear;
+}
+
+.list-enter {
+  opacity: 0;
+}
+
+.list-leave-to {
+  opacity: 0;
+}
+</style>
+```
+
+3. **`toastService.ts`:**
+
+Ensure the `displaySpinner` method in `toastService` is emitting the correct data.
+
+```typescript
+import { DefineComponent } from 'vue';
+import mitt, { Emitter, Handler } from 'mitt';
+import { LoggingService } from '@ebitoolmx/logging-service/console';
+import { loggingService as commonLoggingService } from './logging.js';
+import { MXSyncProgressEvent } from '@ebitoolmx/gateway-types';
+
+export enum ToastEvent {
+  Display = 'display',
+  Dismiss = 'dismiss',
+  CloseAll = 'closeAll'
+}
+
+export enum ToastType {
+  Simple = 'simple',
+  UpdateAvailable = 'updateAvailable',
+  Spinner = 'spinner',
+  Reconnecting = 'reconnecting',
+  PickUpWhereYouLeftOff = 'pickUpWhereYouLeftOff'
+}
+
+export interface Toast {
+  id: symbol;
+  component?: DefineComponent;
+  properties: Record<string, unknown>;
+  timeout?: number;
+}
+
+type Events = {
+  [ToastEvent.Display]: Toast;
+  [ToastEvent.Dismiss]: symbol;
+  [ToastEvent.CloseAll]: undefined;
+};
+
+export class ToastService {
+  protected toastComponents = new Map<ToastType, DefineComponent>();
+
+  protected events: Emitter<Events> = mitt<Events>();
+
+  public constructor(protected loggingService: LoggingService) {}
+
+  public registerToast(type: ToastType, toast: any) {
+    this.toastComponents.set(type, toast);
+  }
+
+  public displayWithId(
+    id: symbol,
+    type: ToastType,
+    props: Record<string=, unknown> = {},
+    timeout: number | undefined = undefined
+  ): symbol {
+    const properties = props;
+    const component = this.toastComponents.get(type);
+
+    if (!component) this.loggingService.error(`Toast type '${type}' has not been registered.`);
+
+    this.events.emit(ToastEvent.Display, { id, component, properties, timeout });
+    this.loggingService.debug(`Displaying toast of type '${type}'`);
+
+    return id;
+  }
+
+  public display(
+    type: ToastType,
+    props: Record<string, unknown> = {},
+    timeout: number | undefined = undefined
+  ): symbol {
+    return this.displayWithId(Symbol('toast'), type, props, timeout);
+  }
+
+  public displaySpinner(id: symbol, header: string, status: MXSyncProgressEvent): symbol {
+    return this.displayWithId(id, ToastType.Spinner, { title: header, status });
+  }
+
+  public dismiss(id: symbol): void {
+    this.events.emit(ToastEvent.Dismiss, id);
+  }
+
+  public closeAll(): void {
+    this.events.emit(ToastEvent.CloseAll);
+  }
+
+  public on<Type extends ToastEvent.CloseAll>(type: Type, callback: Function): void;
+
+  public on<Type extends ToastEvent.Dismiss>(type: Type, callback: Function): void;
+
+  public on<Type extends ToastEvent.Display>(type: Type, callback: (toast: Toast) => void): void;
+
+  public on<T extends ToastEvent>(type: T, callback: Handler<Events[T]>): void {
+    this.events.on(type, callback);
+  }
+
+  public off<T extends ToastEvent>(type: T, callback: Handler<Events[T]>): void {
+    this.events.off(type, callback);
+  }
+}
+
+export const toastService = new ToastService(commonLoggingService);
+```
+
+With these adjustments, you should be able to see the synchronization progress in the `Spinner.vue` component. Make sure to trigger the synchronization events correctly and verify the data flow through the components.
+
+
+----
 import { DefineComponent } from 'vue';
 import mitt, { Emitter, Handler } from 'mitt';
 import { LoggingService } from '@ebitoolmx/logging-service/console';
