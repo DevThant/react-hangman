@@ -1,3 +1,502 @@
+To integrate synchronization progress updates into the `spinner.vue` component using the existing WebSocket and toast services, we'll follow these steps:
+
+1. **Update WebSocket Service**: Ensure it can handle `SyncProgress` messages.
+2. **Update the composable `useSync.ts`**: Handle synchronization progress events and trigger toasts.
+3. **Modify `toaster.vue` and `toast.ts`**: Ensure they can manage the new spinner toasts with progress information.
+4. **Update `spinner.vue`**: Display synchronization progress.
+
+### Step 1: Update WebSocket Service
+
+First, make sure the WebSocket service can handle synchronization progress messages.
+
+**src/services/webSocket.ts**:
+
+```typescript
+// Add this new topic for synchronization progress
+export enum Topic {
+  Error = 'error',
+  ProductUpdate = 'productUpdate',
+  TrackLayoutUpdate = 'updatedTrackLayout',
+  ProductChanged = 'productChanged',
+  ConnectUser = 'connectUser',
+  ConnectedUsers = 'connectedUsers',
+  DisconnectUser = 'disconnectUser',
+  UpdateUser = 'updateUser',
+  GetConnectedUsers = 'getConnectedUsers',
+  Ping = 'ping',
+  Pong = 'pong',
+  Latency = 'latency',
+  SyncProgress = 'syncProgress' // Add this line
+}
+
+// Ensure message handler can process SyncProgress events
+private onMessage(event: MessageEvent): void {
+  if (event?.data && typeof event.data === 'string') {
+    try {
+      const parsedData: unknown = JSON.parse(event.data);
+      if (isCbssWsMessage(parsedData)) {
+        switch (parsedData.topic) {
+          case Topic.Ping:
+            this.handlePingMessage(parsedData.message);
+            break;
+          case Topic.Latency:
+            this.handleLatencyMessage(parsedData.message);
+            break;
+          case Topic.SyncProgress: // Add this case
+            this.handleSyncProgressMessage(parsedData.message);
+            break;
+          default:
+            const subscriptions = this.subscriptions.get(parsedData.topic);
+            if (subscriptions) {
+              subscriptions.forEach(subscriptionCallback => {
+                try {
+                  subscriptionCallback(parsedData);
+                } catch (err) {
+                  this.loggingService.error('failed to notify subscriber', { cause: err });
+                }
+              });
+            }
+        }
+      } else {
+        this.loggingService.warn(
+          'WebSocket message received which was not in the correct format. Ignoring it.'
+        );
+      }
+    } catch (err) {
+      this.loggingService.error('WebSocket message failed', { cause: err });
+    }
+  } else if (event?.data) {
+    this.loggingService.warn('WebSocket message event data is not text, ignoring.');
+  } else {
+    this.loggingService.warn('WebSocket message event is missing the data field, ignoring.');
+  }
+}
+
+// Add the handleSyncProgressMessage function
+private handleSyncProgressMessage(message: MXSyncProgressEvent): void {
+  this.loggingService.debug('Handling SyncProgress message', message);
+  eventService.emit(EventType.SyncProgress, message);
+}
+```
+
+### Step 2: Update the Composable `useSync.ts`
+
+Ensure that `useSync` handles the new progress messages and updates the toasts accordingly.
+
+**src/composables/useSync.ts**:
+
+```typescript
+import { eventService, EventType } from '@/services/event.js';
+import { toastService, ToastType } from '@/services/toast.js';
+import { useProductsStore } from '@/stores/products.js';
+import { useAppStore } from '@/stores/app.js';
+import { DialogNames } from '@/typings/dialog.js';
+import { SyncDialogType } from '@/typings/sync.js';
+import { onBeforeUnmount, Ref, ref, watch } from 'vue';
+import {
+  MXSynchronizationProgressSubscription,
+  MXSyncProgressStatus,
+  MXSyncProgressEvent // Import this
+} from '@ebitoolmx/gateway-types';
+import { useAuthService } from '@/auth/index.js';
+
+export function useSync(
+  isSyncEnabled: Ref<boolean>,
+  syncStatusSubscription: Ref<MXSynchronizationProgressSubscription | null>
+) {
+  const appStore = useAppStore();
+  const productsStore = useProductsStore();
+  const { userDetails } = useAuthService();
+  const syncProcessingId = ref<symbol | null>(null);
+  const taskId = ref<symbol>(Symbol(productsStore.activeProductId));
+
+  watch(
+    () => productsStore.activeProductId,
+    (newId, oldId) => {
+      if (newId !== oldId) {
+        appStore.removeBlockingTask(taskId.value);
+        taskId.value = Symbol(newId);
+      }
+    }
+  );
+
+  const handleSyncProgress = (progress: MXSyncProgressEvent) => {
+    if (syncProcessingId.value) {
+      toastService.update(syncProcessingId.value, {
+        progress,
+        titleVars: {
+          syncedBy: progress.syncedBy,
+          syncedModels: progress.syncedModels.length,
+          totalModels: progress.allModels.length,
+        },
+      });
+    }
+  };
+
+  eventService.on(EventType.SyncProgress, handleSyncProgress);
+
+  watch(
+    [syncStatusSubscription, () => isSyncEnabled.value],
+    ([newStatus], [oldStatus]) => {
+      if (!newStatus || !isSyncEnabled.value) {
+        appStore.removeBlockingTask(taskId.value);
+        return;
+      }
+      const newSyncStatus = newStatus.synchronizationProgress?.syncProgressStatus;
+      const olsSyncStatus = oldStatus?.synchronizationProgress?.syncProgressStatus;
+      const syncedByUser = newStatus.synchronizationProgress?.syncedBy === userDetails.value?.email;
+      const syncProcessing = newSyncStatus === MXSyncProgressStatus.Synchronizing;
+      const syncInitialising = newSyncStatus === MXSyncProgressStatus.Initializing;
+      const syncSuccessful =
+        (newSyncStatus === MXSyncProgressStatus.Successful &&
+          olsSyncStatus === MXSyncProgressStatus.Synchronizing) ||
+        (newSyncStatus === MXSyncProgressStatus.Successful &&
+          olsSyncStatus === MXSyncProgressStatus.Initializing);
+      const syncUnsuccessful =
+        newSyncStatus === MXSyncProgressStatus.Unsuccessful &&
+        olsSyncStatus === MXSyncProgressStatus.Synchronizing;
+      const syncInitialisationFailed =
+        newSyncStatus === MXSyncProgressStatus.InitializationFailed &&
+        olsSyncStatus === MXSyncProgressStatus.Initializing;
+
+      if (syncProcessing) {
+        appStore.addBlockingTask(taskId.value);
+      } else {
+        appStore.removeBlockingTask(taskId.value);
+        if (syncProcessingId.value) {
+          toastService.dismiss(syncProcessingId.value);
+          syncProcessingId.value = null;
+        }
+      }
+
+      if (syncedByUser) {
+        if (syncInitialising) {
+          eventService.emit(EventType.OpenDialog, {
+            dialogName: DialogNames.Sync,
+            options: {
+              props: {
+                dialogType: SyncDialogType.Initialising,
+                status: newStatus.synchronizationProgress
+              },
+              modal: true
+            }
+          });
+        } else if (syncProcessing)
+          eventService.emit(EventType.OpenDialog, {
+            dialogName: DialogNames.Sync,
+            options: {
+              props: {
+                dialogType: SyncDialogType.Processing,
+                status: newStatus.synchronizationProgress
+              },
+              modal: true
+            }
+          });
+        else if (syncSuccessful)
+          eventService.emit(EventType.OpenDialog, {
+            dialogName: DialogNames.Sync,
+            options: {
+              props: {
+                dialogType: SyncDialogType.Successful,
+                status: newStatus.synchronizationProgress
+              },
+              modal: true
+            }
+          });
+        else if (syncInitialisationFailed) {
+          eventService.emit(EventType.OpenDialog, {
+            dialogName: DialogNames.Sync,
+            options: {
+              props: {
+                dialogType: SyncDialogType.InitialisingFailed,
+                status: newStatus.synchronizationProgress
+              },
+              modal: true
+            }
+          });
+        } else if (syncUnsuccessful)
+          eventService.emit(EventType.OpenDialog, {
+            dialogName: DialogNames.Sync,
+            options: {
+              props: {
+                dialogType: SyncDialogType.Unsuccessful,
+                status: newStatus.synchronizationProgress
+              },
+              modal: true
+            }
+          });
+      } else if ((syncProcessing || syncInitialising) && !syncProcessingId.value) {
+        syncProcessingId.value = toastService.display(ToastType.Spinner, {
+          type: 'default',
+          title: 'sync.toaster.requested',
+          titleVars: {
+            syncedBy: newStatus.synchronizationProgress?.syncedBy,
+            syncedModels: newStatus.synchronizationProgress?.syncedModels.length,
+            totalModels: newStatus.synchronizationProgress?.allModels.length,
+          },
+          dismissable: true
+        });
+      } else if (syncSuccessful) {
+        toastService.display(ToastType.Simple, {
+          type: 'default',
+          title: 'sync.toaster.successful'
+        });
+      } else if (syncUnsuccessful || syncInitialisationFailed) {
+        toastService.display(ToastType.Simple, {
+          type: 'default',
+          title: 'sync.toaster.unsuccessful'
+        });
+      }
+    },
+    { immediate: true }
+  );
+
+  onBeforeUnmount(() => {
+    if (syncProcessingId.value) toastService.dismiss(syncProcessingId.value);
+    appStore.removeBlockingTask(taskId.value);
+    eventService.off(EventType.SyncProgress, handleSyncProgress);
+  });
+}
+```
+
+### Step 3: Update `toaster.vue` and `toast.ts`
+
+Ensure the toaster component can handle and display the new spinner toasts with progress updates.
+
+**src/services/toast.ts**:
+
+```typescript
+// Add update method to ToastService to update existing toasts
+public update(id: symbol, props: Record<string, unknown>): void
+
+ {
+  this.events.emit(ToastEvent.Update, { id, props });
+}
+
+type Events = {
+  [ToastEvent.Display]: Toast;
+  [ToastEvent.Dismiss]: symbol;
+  [ToastEvent.CloseAll]: undefined;
+  [ToastEvent.Update]: { id: symbol; props: Record<string, unknown> }; // Add this line
+};
+```
+
+**src/components/toaster.vue**:
+
+```vue
+<template>
+  <transition-group
+    v-if="displayedToasts.length"
+    name="list"
+    tag="div"
+    class="container lead"
+    data-testid="toaster"
+  >
+    <component
+      :is="toast.component"
+      v-for="toast in displayedToasts"
+      :key="toast.id"
+      v-bind="{ id: toast.id, class: 'toast', ...toast.properties }"
+      @click="toast.properties.onClick"
+      @dismiss="removeToast"
+    />
+  </transition-group>
+</template>
+
+<script setup lang="ts">
+import { onBeforeUnmount, onMounted, ref, shallowRef } from 'vue';
+import { toastService, ToastEvent, Toast } from '@/services/toast.js';
+defineOptions({ name: 'Toaster' });
+
+const displayedToasts = shallowRef<Toast[]>([]);
+const toastTimeouts = ref<Map<symbol, number>>(new Map());
+
+const removeToast = (id: symbol): void => {
+  if (toastTimeouts.value.has(id)) {
+    window.clearTimeout(toastTimeouts.value.get(id));
+    toastTimeouts.value.delete(id);
+  }
+  displayedToasts.value = displayedToasts.value.filter(toast => toast.id !== id);
+};
+
+const displayToast = (toast: Toast): void => {
+  displayedToasts.value = [...displayedToasts.value, toast];
+  if (toast.timeout) {
+    const timeoutHandle = window.setTimeout(() => {
+      removeToast(toast.id);
+    }, toast.timeout);
+    toastTimeouts.value.set(toast.id, timeoutHandle);
+  }
+};
+
+const updateToast = ({ id, props }: { id: symbol; props: Record<string, unknown> }): void => {
+  const toast = displayedToasts.value.find(toast => toast.id === id);
+  if (toast) {
+    Object.assign(toast.properties, props);
+    displayedToasts.value = [...displayedToasts.value];
+  }
+};
+
+const clearAllToasts = () => {
+  displayedToasts.value = [];
+};
+
+onMounted(() => {
+  toastService.on(ToastEvent.Display, displayToast);
+  toastService.on(ToastEvent.Update, updateToast);
+  toastService.on(ToastEvent.CloseAll, clearAllToasts);
+});
+
+onBeforeUnmount(() => {
+  toastService.off(ToastEvent.Display, displayToast);
+  toastService.off(ToastEvent.Update, updateToast);
+  toastService.off(ToastEvent.CloseAll, clearAllToasts);
+});
+</script>
+
+<style scoped>
+.container {
+  position: absolute;
+  width: 100%;
+  min-height: 24px;
+  display: flex;
+  flex-direction: column;
+  align-content: flex-end;
+  z-index: 101;
+  background: transparent;
+  font-family: var(--font-family);
+}
+.container > * {
+  position: relative;
+  width: 100%;
+  display: block;
+  padding: var(--base-spacing-7);
+  margin: var(--base-spacing-0);
+  border-radius: var(--base-radius);
+  overflow: hidden;
+  z-index: 3;
+  color: var(--white);
+  background: var(--toaster-background-color-default);
+}
+.container > *.default {
+  background: var(--toaster-background-color-default);
+  border: 2px solid var(--toaster-border-color-default);
+}
+.container > *.info {
+  background: var(--toaster-background-color-info);
+  border: 0;
+}
+.container > *.warning {
+  background: var(--toaster-background-color-default);
+  border: 2px solid var(--toaster-border-color-warning);
+}
+.container > *.error {
+  background: var(--toaster-background-color-default);
+  border: 2px solid var(--toaster-border-color-error);
+}
+.list-enter-active {
+  transition: all 0.8s linear;
+}
+.list-leave-active {
+  transition: all 0.4s linear;
+}
+.list-enter {
+  opacity: 0;
+}
+.list-leave-to {
+  opacity: 0;
+}
+</style>
+```
+
+### Step 4: Update `spinner.vue`
+
+Finally, update `spinner.vue` to display the progress information.
+
+**src/components/spinner.vue**:
+
+```vue
+<template>
+  <div class="item default">
+    <div class="header">
+      <span class="title semi-bold">{{ titleText }}</span>
+      <app-icon-button
+        v-if="dismissable"
+        :title="t('common.dismiss')"
+        :name="'times'"
+        class="icon-button dismiss"
+        @click="dismiss"
+      />
+    </div>
+    <app-horizontal-spinner class="spinner" :thin="true"></app-horizontal-spinner>
+    <div class="progress-info" v-if="syncProgress">
+      {{ syncProgress.syncedModels.length }} / {{ syncProgress.allModels.length }} models are done.
+    </div>
+  </div>
+</template>
+
+<script setup lang="ts">
+import { ref, onBeforeUnmount, onMounted } from 'vue';
+import AppIconButton from '@/components/common/icon/IconButton.vue';
+import AppHorizontalSpinner from '@/components/common/spinner/HorizontalSpinner.vue';
+import { ToastEvent, toastService } from '@/services/toast.js';
+import { useI18n } from 'vue-i18n';
+import { eventService, EventType } from '@/services/event.js';
+import { MXSyncProgressEvent } from '@ebitoolmx/gateway-types';
+
+defineOptions({ name: 'SpinnerToast' });
+
+const props = withDefaults(
+  defineProps<{
+    id: symbol;
+    title: string;
+    titleVars?: Record<string, unknown>;
+    dismissable?: boolean;
+  }>(),
+  {
+    titleVars: () => ({}),
+    dismissable: false
+  }
+);
+
+const emit = defineEmits<{ dismiss: [id: symbol] }>();
+const { t, te } = useI18n();
+const dismiss = () => emit('dismiss', props.id);
+const onDismiss = (id: symbol) => {
+  if (id === props.id) {
+    dismiss();
+  }
+};
+
+const titleText: string = te(props.title) ? t(props.title, props.titleVars) : props.title;
+const syncProgress = ref<MXSyncProgressEvent | null>(null);
+
+const handleSyncProgressEvent = (event: MXSyncProgressEvent) => {
+  syncProgress.value = event;
+};
+
+onMounted(() => {
+  toastService.on(ToastEvent.Dismiss, onDismiss);
+  eventService.on(EventType.SyncProgress, handleSyncProgressEvent);
+});
+
+onBeforeUnmount(() => {
+  toastService.off(ToastEvent.Dismiss, onDismiss);
+  eventService.off(EventType.SyncProgress, handleSyncProgressEvent);
+});
+</script>
+
+<style scoped>
+/* styles */
+</style>
+```
+
+### Summary
+
+These changes ensure that the `spinner.vue` component will now display synchronization progress in real-time using the WebSocket service and toast notifications. This approach utilizes existing infrastructure for real-time updates and toast management, fitting seamlessly into your application's architecture.
+-----------
+
+
 Given that the `EventType` does not include a `SyncProgress` event, we'll need to add it to the `EventType` enum and update the `Events` type accordingly. Then we can use this new event type in the `spinner.vue` component. 
 
 ### Step 1: Update `EventType` and `Events`
