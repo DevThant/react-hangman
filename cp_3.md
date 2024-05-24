@@ -1,3 +1,257 @@
+To integrate the synchronization progress information into the `Spinner.vue` component, we will follow these steps:
+
+1. **Modify `Spinner.vue` to accept synchronization status data.**
+2. **Update `Toaster.vue` to pass synchronization status data to `Spinner.vue`.**
+3. **Ensure the `toastService` is correctly configured to handle synchronization events.**
+
+Here's the complete implementation:
+
+### Step 1: Update `Spinner.vue`
+
+Modify `Spinner.vue` to accept and display synchronization status data:
+
+```vue
+<template>
+  <div class="item default">
+    <div class="header">
+      <span class="title semi-bold">{{ titleText }}</span>
+      <span class="progress">{{ syncedModels.length }}/{{ allModels.length }} models are done.</span>
+      <app-icon-button
+        v-if="dismissable"
+        :title="t('common.dismiss')"
+        :name="'times'"
+        class="icon-button dismiss"
+        @click="dismiss"
+      />
+    </div>
+    <app-horizontal-spinner class="spinner" :thin="true"></app-horizontal-spinner>
+  </div>
+</template>
+
+<script setup lang="ts">
+import { computed } from 'vue';
+import { onBeforeUnmount, onMounted, toRefs } from 'vue';
+import AppIconButton from '@/components/common/icon/IconButton.vue';
+import AppHorizontalSpinner from '@/components/common/spinner/HorizontalSpinner.vue';
+import { useI18n } from 'vue-i18n';
+
+defineOptions({ name: 'SpinnerToast' });
+
+const props = withDefaults(
+  defineProps<{
+    id: symbol;
+    title: string;
+    titleVars?: Record<string, unknown>;
+    dismissable?: boolean;
+    status?: MXSyncProgressEvent;
+  }>(),
+  {
+    titleVars: () => ({}),
+    dismissable: false,
+    status: () => ({ allModels: [], syncedModels: [] })
+  }
+);
+
+const { t, te } = useI18n();
+const { id, title, titleVars, dismissable, status } = toRefs(props);
+
+const dismiss = () => emit('dismiss', id.value);
+const onDismiss = (dismissId: symbol) => {
+  if (dismissId === id.value) {
+    dismiss();
+  }
+};
+
+const titleText = computed(() => (te(title.value) ? t(title.value, titleVars.value) : title.value));
+const syncedModels = computed(() => status.value.syncedModels || []);
+const allModels = computed(() => status.value.allModels || []);
+
+onMounted(() => {
+  toastService.on(ToastEvent.Dismiss, onDismiss);
+});
+onBeforeUnmount(() => {
+  toastService.off(ToastEvent.Dismiss, onDismiss);
+});
+</script>
+
+<style scoped>
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.progress {
+  font-weight: normal;
+  font-size: 0.9em;
+  margin-left: 10px;
+}
+</style>
+```
+
+### Step 2: Update `Toaster.vue`
+
+Modify `Toaster.vue` to pass synchronization status data to `Spinner.vue`:
+
+```vue
+<template>
+  <transition-group
+    v-if="displayedToasts.length"
+    name="list"
+    tag="div"
+    class="container lead"
+    data-testid="toaster"
+  >
+    <component
+      :is="toast.component"
+      v-for="toast in displayedToasts"
+      :key="toast.id"
+      v-bind="{ id: toast.id, class: 'toast', ...toast.properties }"
+      @click="toast.properties.onClick"
+      @dismiss="removeToast"
+    />
+  </transition-group>
+</template>
+
+<script setup lang="ts">
+import { onBeforeUnmount, onMounted, ref, shallowRef } from 'vue';
+import { toastService, ToastEvent, Toast } from '@/services/toast.js';
+
+defineOptions({ name: 'Toaster' });
+
+const displayedToasts = shallowRef<Toast[]>([]);
+const toastTimeouts = ref<Map<symbol, number>>(new Map());
+
+const removeToast = (id: symbol): void => {
+  if (toastTimeouts.value.has(id)) {
+    window.clearTimeout(toastTimeouts.value.get(id));
+    toastTimeouts.value.delete(id);
+  }
+  displayedToasts.value = displayedToasts.value.filter(toast => toast.id !== id);
+};
+
+const displayToast = (toast: Toast): void => {
+  displayedToasts.value = [...displayedToasts.value, toast];
+  if (toast.timeout) {
+    const timeoutHandle = window.setTimeout(() => {
+      removeToast(toast.id);
+    }, toast.timeout);
+    toastTimeouts.value.set(toast.id, timeoutHandle);
+  }
+};
+
+const clearAllToasts = () => {
+  displayedToasts.value = [];
+};
+
+onMounted(() => {
+  toastService.on(ToastEvent.Display, displayToast);
+  toastService.on(ToastEvent.CloseAll, clearAllToasts);
+});
+
+onBeforeUnmount(() => {
+  toastService.off(ToastEvent.Display, displayToast);
+  toastService.off(ToastEvent.CloseAll, clearAllToasts);
+});
+</script>
+
+<style scoped>
+.container {
+  position: absolute;
+  width: 100%;
+  min-height: 24px;
+  display: flex;
+  flex-direction: column;
+  align-content: flex-end;
+  z-index: 101;
+  background: transparent;
+  font-family: var(--font-family);
+}
+
+.container > * {
+  position: relative;
+  width: 100%;
+  display: block;
+  padding: var(--base-spacing-7);
+  margin: var(--base-spacing-0);
+  border-radius: var(--base-radius);
+  overflow: hidden;
+  z-index: 3;
+  color: var(--white);
+  background: var(--toaster-background-color-default);
+}
+
+.container > *.default {
+  background: var(--toaster-background-color-default);
+  border: 2px solid var(--toaster-border-color-default);
+}
+
+.container > *.info {
+  background: var(--toaster-background-color-info);
+  border: 0;
+}
+
+.container > *.warning {
+  background: var(--toaster-background-color-default);
+  border: 2px solid var(--toaster-border-color-warning);
+}
+
+.container > *.error {
+  background: var(--toaster-background-color-default);
+  border: 2px solid var(--toaster-border-color-error);
+}
+
+.list-enter-active {
+  transition: all 0.8s linear;
+}
+
+.list-leave-active {
+  transition: all 0.4s linear;
+}
+
+.list-enter {
+  opacity: 0;
+}
+
+.list-leave-to {
+  opacity: 0;
+}
+</style>
+```
+
+### Step 3: Update `toastService` to handle synchronization events
+
+Make sure your `toastService` is configured to emit synchronization events:
+
+```typescript
+// toastService.ts
+import { EventEmitter } from 'events';
+
+export enum ToastEvent {
+  Display = 'display',
+  Dismiss = 'dismiss',
+  CloseAll = 'closeAll',
+}
+
+export const toastService = new EventEmitter();
+
+export function displaySyncToast(status: MXSyncProgressEvent) {
+  toastService.emit(ToastEvent.Display, {
+    component: 'SpinnerToast',
+    properties: {
+      title: 'Synchronization in progress',
+      status,
+      timeout: 0, // keep the toast until manually dismissed
+    },
+  });
+}
+```
+
+Now, when synchronization is in progress, you can call `displaySyncToast(status)` with the synchronization status to display the spinner toast with the progress information.
+
+With these changes, your `Spinner.vue` component will display the synchronization progress, showing the number of synced models out of the total models.
+-------
+
 To integrate synchronization progress updates into the `spinner.vue` component using the existing WebSocket and toast services, we'll follow these steps:
 
 1. **Update WebSocket Service**: Ensure it can handle `SyncProgress` messages.
