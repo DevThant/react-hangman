@@ -1,71 +1,15 @@
-To implement the required feature of displaying the sync progress in the Spinner.vue component, we need to follow these steps:
+To achieve the desired functionality, we need to update the `spinner.vue` component to use similar logic as `sync.vue` for displaying the synchronization progress. We'll add the logic to handle `MXSyncProgressEvent` and `MXSyncProgressStatus` in `spinner.vue` and display the number of completed synced models out of the total models.
 
-1. **Enhance Sync.vue to emit progress updates**: Sync.vue will emit events with the progress data.
-2. **Listen to progress updates in Spinner.vue**: Update Spinner.vue to listen to these events and display the progress.
+Here are the steps:
 
-Let's go through these steps in detail:
+1. **Update the `spinner.vue` template to include the synchronization progress information.**
+2. **Add the necessary logic in the `script` section to handle the synchronization progress.**
 
-### Step 1: Enhance Sync.vue to Emit Progress Updates
+Here's how you can do it:
 
-We will emit events from Sync.vue with the current progress of the sync process.
+### Step 1: Update `spinner.vue` Template
 
-```vue
-<template>
-  <app-dialog-container title-key="sync.modal.title" data-testid="dialog-sync">
-    <!-- ... existing code ... -->
-  </app-dialog-container>
-</template>
-
-<script setup lang="ts">
-import { watch, computed } from "vue";
-// ... other imports ...
-
-// Define props and other variables as before
-
-function start() {
-  const email = userDetails.value?.email;
-  if (!email) return;
-
-  productsStore.syncProduct({
-    productId: productsStore.activeProductId,
-    userId: email,
-    editorType: editorStore.editorType,
-  });
-
-  emitProgress();
-}
-
-function emitProgress() {
-  if (props.status) {
-    const progress = {
-      syncedModels: props.status.syncedModels.length,
-      totalModels: props.status.allModels.length,
-    };
-    eventService.emit("syncProgress", progress);
-  }
-}
-
-// Watcher to emit progress when the status changes
-watch(
-  () => props.status,
-  (newStatus) => {
-    emitProgress();
-  },
-  { deep: true }
-);
-
-// Existing code for watches, computed properties, and functions
-
-</script>
-
-<style scoped>
-/* Existing styles */
-</style>
-```
-
-### Step 2: Update Spinner.vue to Listen to Progress Updates
-
-We'll modify Spinner.vue to listen to these progress events and update its display accordingly.
+Update the template to include a section for displaying the synchronization progress:
 
 ```vue
 <template>
@@ -80,25 +24,29 @@ We'll modify Spinner.vue to listen to these progress events and update its displ
         @click="dismiss"
       />
     </div>
-    <div class="progress">
-      <span>{{ progressText }}</span>
+    <app-horizontal-spinner class="spinner" :thin="true"></app-horizontal-spinner>
+    <div class="progress-info" v-if="syncProgress">
+      {{ syncProgress.syncedModels.length }} / {{ syncProgress.allModels.length }} models are done.
     </div>
-    <app-horizontal-spinner
-      class="spinner"
-      :thin="true"
-    ></app-horizontal-spinner>
   </div>
 </template>
+```
 
+### Step 2: Add Logic in `script` Section
+
+Add the necessary imports and logic to handle the synchronization progress:
+
+```vue
 <script setup lang="ts">
-import { ref, onBeforeUnmount, onMounted } from "vue";
-import AppIconButton from "@/components/common/icon/IconButton.vue";
-import AppHorizontalSpinner from "@/components/common/spinner/HorizontalSpinner.vue";
-import { toastService, ToastEvent } from "@/services/toast.js";
-import { useI18n } from "vue-i18n";
-import { eventService } from "@/services/event.js";
+import { ref, onBeforeUnmount, onMounted } from 'vue';
+import AppIconButton from '@/components/common/icon/IconButton.vue';
+import AppHorizontalSpinner from '@/components/common/spinner/HorizontalSpinner.vue';
+import { ToastEvent, toastService } from '@/services/toast.js';
+import { useI18n } from 'vue-i18n';
+import { eventService, EventType } from '@/services/event.js';
+import { MXSyncProgressEvent } from '@ebitoolmx/gateway-types';
 
-defineOptions({ name: "SpinnerToast" });
+defineOptions({ name: 'SpinnerToast' });
 
 const props = withDefaults(
   defineProps<{
@@ -109,89 +57,47 @@ const props = withDefaults(
   }>(),
   {
     titleVars: () => ({}),
-    dismissable: false,
+    dismissable: false
   }
 );
 
 const emit = defineEmits<{ dismiss: [id: symbol] }>();
 const { t, te } = useI18n();
-const dismiss = () => emit("dismiss", props.id);
-const titleText: string = te(props.title)
-  ? t(props.title, props.titleVars)
-  : props.title;
-const progressText = ref("Synchronisation has been requested by user@example.com");
-
+const dismiss = () => emit('dismiss', props.id);
 const onDismiss = (id: symbol) => {
   if (id === props.id) {
     dismiss();
   }
 };
 
-const updateProgressText = (progress) => {
-  progressText.value = `Synchronisation has been requested by user@example.com\n${progress.syncedModels}/${progress.totalModels} models are done.`;
+const titleText: string = te(props.title) ? t(props.title, props.titleVars) : props.title;
+const syncProgress = ref<MXSyncProgressEvent | null>(null);
+
+const handleSyncProgressEvent = (event: MXSyncProgressEvent) => {
+  syncProgress.value = event;
 };
 
 onMounted(() => {
   toastService.on(ToastEvent.Dismiss, onDismiss);
-  eventService.on("syncProgress", updateProgressText);
+  eventService.on(EventType.SyncProgress, handleSyncProgressEvent);
 });
 
 onBeforeUnmount(() => {
   toastService.off(ToastEvent.Dismiss, onDismiss);
-  eventService.off("syncProgress", updateProgressText);
+  eventService.off(EventType.SyncProgress, handleSyncProgressEvent);
 });
 </script>
-
-<style scoped>
-.icon-button {
-  background-color: transparent;
-  border-width: 0;
-  padding: 0;
-  height: 16px;
-  width: 16px;
-  cursor: pointer;
-}
-
-.header {
-  display: flex;
-  flex-direction: row;
-  align-items: flex-start;
-  width: 100%;
-}
-
-.header .title {
-  flex-grow: 1;
-  padding-right: var(--base-spacing-0);
-}
-
-.header .dismiss {
-  fill: var(--toaster-dismiss-icon);
-  flex-shrink: 0;
-  height: 16px;
-  width: 16px;
-  font-size: 16px;
-  display: inline-block;
-}
-
-.header .dismiss:hover {
-  fill: var(--toaster-dismiss-icon);
-}
-
-.progress {
-  margin: 10px 0;
-}
-
-.spinner {
-  margin: 15px 0 15px;
-}
-</style>
 ```
 
-With these changes, the Spinner.vue component will now display the sync progress, showing the number of models that have been synced out of the total models, in real time.
+### Explanation
 
-### Next Steps
+1. **Template Changes:**
+   - Added a `div` with class `progress-info` that conditionally displays the number of synced models out of the total models if `syncProgress` is available.
 
-**a.** Add unit tests to ensure the progress update mechanism works correctly.
-**b.** Optimize the event emission to avoid unnecessary updates.
+2. **Script Changes:**
+   - Imported necessary services and types.
+   - Defined a reactive `syncProgress` ref to store the synchronization progress event data.
+   - Created `handleSyncProgressEvent` function to update `syncProgress` when a synchronization progress event is received.
+   - Set up event listeners in `onMounted` to listen for synchronization progress events and clean up in `onBeforeUnmount`.
 
-Would you like to proceed with these steps or have any further modifications in mind?
+This implementation ensures that the `spinner.vue` component will now display the synchronization progress similarly to `sync.vue`. If you need any further adjustments or have specific requirements, feel free to let me know!
