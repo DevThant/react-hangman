@@ -1,3 +1,191 @@
+The issue you're encountering is due to a mismatch in the types expected by the `update` method in the `ToastService`. Specifically, the `update` method expects the first parameter to be a `symbol`, which is the ID of the toast, but you're passing an enum value (`ToastType.Spinner`).
+
+To fix this, you need to keep track of the ID of the spinner toast when it's initially created, and then use that ID when calling the `update` method. Here's how you can do it:
+
+### Full Code for `useSync.ts`
+
+```typescript
+import { eventService, EventType } from '@/services/event.js';
+import { toastService, ToastType } from '@/services/toast.js';
+import { useProductsStore } from '@/stores/products.js';
+import { useAppStore } from '@/stores/app.js';
+import { DialogNames } from '@/typings/dialog.js';
+import { SyncDialogType } from '@/typings/sync.js';
+import { onBeforeUnmount, Ref, ref, watch } from 'vue';
+import {
+  MXSynchronizationProgressSubscription,
+  MXSyncProgressStatus
+} from '@ebitoolmx/gateway-types';
+import { useAuthService } from '@/auth/index.js';
+
+export function useSync(
+  isSyncEnabled: Ref<boolean>,
+  syncStatusSubscription: Ref<MXSynchronizationProgressSubscription | null>
+) {
+  const appStore = useAppStore();
+  const productsStore = useProductsStore();
+  const { userDetails } = useAuthService();
+
+  const syncProcessingId = ref<symbol | null>(null);
+  const taskId = ref<symbol>(Symbol(productsStore.activeProductId));
+
+  watch(
+    () => productsStore.activeProductId,
+    (newId, oldId) => {
+      if (newId !== oldId) {
+        appStore.removeBlockingTask(taskId.value);
+        taskId.value = Symbol(newId);
+      }
+    }
+  );
+
+  watch(
+    [syncStatusSubscription, () => isSyncEnabled.value],
+    ([newStatus], [oldStatus]) => {
+      if (!newStatus || !isSyncEnabled.value) {
+        appStore.removeBlockingTask(taskId.value);
+        return;
+      }
+
+      const newSyncStatus = newStatus.synchronizationProgress?.syncProgressStatus;
+      const oldSyncStatus = oldStatus?.synchronizationProgress?.syncProgressStatus;
+
+      const syncedByUser = newStatus.synchronizationProgress?.syncedBy === userDetails.value?.email;
+      const syncProcessing = newSyncStatus === MXSyncProgressStatus.Synchronizing;
+      const syncInitialising = newSyncStatus === MXSyncProgressStatus.Initializing;
+
+      const syncSuccessful =
+        (newSyncStatus === MXSyncProgressStatus.Successful &&
+          oldSyncStatus === MXSyncProgressStatus.Synchronizing) ||
+        (newSyncStatus === MXSyncProgressStatus.Successful &&
+          oldSyncStatus === MXSyncProgressStatus.Initializing);
+
+      const syncUnsuccessful =
+        newSyncStatus === MXSyncProgressStatus.Unsuccessful &&
+        oldSyncStatus === MXSyncProgressStatus.Synchronizing;
+
+      const syncInitialisationFailed =
+        newSyncStatus === MXSyncProgressStatus.InitializationFailed &&
+        oldSyncStatus === MXSyncProgressStatus.Initializing;
+
+      if (syncProcessing) {
+        appStore.addBlockingTask(taskId.value);
+        if (syncProcessingId.value) {
+          toastService.update(syncProcessingId.value, {
+            allModels: newStatus.synchronizationProgress?.allModels || [],
+            syncedModels: newStatus.synchronizationProgress?.syncedModels || []
+          });
+        }
+      } else {
+        appStore.removeBlockingTask(taskId.value);
+        if (syncProcessingId.value) {
+          toastService.dismiss(syncProcessingId.value);
+          syncProcessingId.value = null;
+        }
+      }
+
+      if (syncedByUser) {
+        if (syncInitialising) {
+          eventService.emit(EventType.OpenDialog, {
+            dialogName: DialogNames.Sync,
+            options: {
+              props: {
+                dialogType: SyncDialogType.Initialising,
+                status: newStatus.synchronizationProgress
+              },
+              modal: true
+            }
+          });
+        } else if (syncProcessing)
+          eventService.emit(EventType.OpenDialog, {
+            dialogName: DialogNames.Sync,
+            options: {
+              props: {
+                dialogType: SyncDialogType.Processing,
+                status: newStatus.synchronizationProgress
+              },
+              modal: true
+            }
+          });
+        else if (syncSuccessful)
+          eventService.emit(EventType.OpenDialog, {
+            dialogName: DialogNames.Sync,
+            options: {
+              props: {
+                dialogType: SyncDialogType.Successful,
+                status: newStatus.synchronizationProgress
+              },
+              modal: true
+            }
+          });
+        else if (syncInitialisationFailed) {
+          eventService.emit(EventType.OpenDialog, {
+            dialogName: DialogNames.Sync,
+            options: {
+              props: {
+                dialogType: SyncDialogType.InitialisingFailed,
+                status: newStatus.synchronizationProgress
+              },
+              modal: true
+            }
+          });
+        } else if (syncUnsuccessful)
+          eventService.emit(EventType.OpenDialog, {
+            dialogName: DialogNames.Sync,
+            options: {
+              props: {
+                dialogType: SyncDialogType.Unsuccessful,
+                status: newStatus.synchronizationProgress
+              },
+              modal: true
+            }
+          });
+      } else if ((syncProcessing || syncInitialising) && !syncProcessingId.value) {
+        console.log('new status', newStatus.synchronizationProgress);
+        syncProcessingId.value = toastService.display(ToastType.Spinner, {
+          type: 'default',
+          title: 'sync.toaster.requested',
+          titleVars: {
+            syncedBy: newStatus.synchronizationProgress?.syncedBy
+          },
+          allModels: newStatus.synchronizationProgress?.allModels || [],
+          syncedModels: newStatus.synchronizationProgress?.syncedModels || [],
+          dismissable: true
+        });
+      } else if (syncSuccessful) {
+        toastService.display(ToastType.Simple, {
+          type: 'default',
+          title: 'sync.toaster.successful'
+        });
+      } else if (syncUnsuccessful || syncInitialisationFailed) {
+        toastService.display(ToastType.Simple, {
+          type: 'default',
+          title: 'sync.toaster.unsuccessful'
+        });
+      }
+    },
+    { immediate: true }
+  );
+
+  onBeforeUnmount(() => {
+    if (syncProcessingId.value) toastService.dismiss(syncProcessingId.value);
+    appStore.removeBlockingTask(taskId.value);
+  });
+}
+```
+
+### Explanation
+
+1. **Track Toast ID:** We keep track of the spinner toast ID using `syncProcessingId.value`.
+2. **Update Toast Props:** When the synchronization status is `SYNCHRONIZING`, we call the `update` method with the tracked toast ID and new properties.
+3. **Display Toast:** When the synchronization is initializing or processing, and there is no existing spinner toast, we create a new one and save its ID.
+
+By ensuring that the `update` method receives the correct `symbol` (the toast ID) and not an enum value, the code will correctly update the spinner toast with the new data, similar to how `Sync.vue` works.
+
+
+
+---------------
+
 It appears that TypeScript is not recognizing the `ToastEvent.Update` event because we didn't properly extend the type definitions in `ToastService`. Let’s correct that and make sure everything is consistent.
 
 Here’s the revised implementation for the `ToastService` and the related parts:
