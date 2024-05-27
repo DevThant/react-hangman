@@ -306,3 +306,258 @@ To ensure that the Toast Service can handle the new props (`allModels` and `sync
 This ensures that the `ToastService` can handle and pass the `allModels` and `syncedModels` props to the `Spinner.vue` component through `Toaster.vue`.
 
 Do you have any specific test cases or scenarios in mind to ensure that the spinner toast displays the correct synchronization data?
+---------------------
+
+
+Based on the logs, it appears that `allModels` and `syncedModels` data are being passed inconsistently. Since `sync.vue` achieves live updates, let's ensure that the spinner toast can also update reactively.
+
+Here are the steps to ensure reactive updates for `Spinner.vue`:
+
+### 1. Ensure Reactive Data Handling in `useSync.ts`
+
+Make sure `syncStatusSubscription` is correctly set up as a reactive reference and updates its state:
+
+```typescript
+watch(
+  [syncStatusSubscription, () => isSyncEnabled.value],
+  ([newStatus], [oldStatus]) => {
+    if (!newStatus || !isSyncEnabled.value) {
+      appStore.removeBlockingTask(taskId.value);
+      return;
+    }
+
+    const newSyncStatus = newStatus.synchronizationProgress?.syncProgressStatus;
+    const oldSyncStatus = oldStatus?.synchronizationProgress?.syncProgressStatus;
+
+    const syncedByUser = newStatus.synchronizationProgress?.syncedBy === userDetails.value?.email;
+    const syncProcessing = newSyncStatus === MXSyncProgressStatus.Synchronizing;
+
+    const syncInitialising = newSyncStatus === MXSyncProgressStatus.Initializing;
+
+    const syncSuccessful =
+      (newSyncStatus === MXSyncProgressStatus.Successful &&
+        oldSyncStatus === MXSyncProgressStatus.Synchronizing) ||
+      (newSyncStatus === MXSyncProgressStatus.Successful &&
+        oldSyncStatus === MXSyncProgressStatus.Initializing);
+
+    const syncUnsuccessful =
+      newSyncStatus === MXSyncProgressStatus.Unsuccessful &&
+      oldSyncStatus === MXSyncProgressStatus.Synchronizing;
+
+    const syncInitialisationFailed =
+      newSyncStatus === MXSyncProgressStatus.InitializationFailed &&
+      oldSyncStatus === MXSyncProgressStatus.Initializing;
+
+    if (syncProcessing) {
+      appStore.addBlockingTask(taskId.value);
+    } else {
+      appStore.removeBlockingTask(taskId.value);
+      if (syncProcessingId.value) {
+        toastService.dismiss(syncProcessingId.value);
+        syncProcessingId.value = null;
+      }
+    }
+
+    if (syncedByUser) {
+      if (syncInitialising) {
+        eventService.emit(EventType.OpenDialog, {
+          dialogName: DialogNames.Sync,
+          options: {
+            props: {
+              dialogType: SyncDialogType.Initialising,
+              status: newStatus.synchronizationProgress
+            },
+            modal: true
+          }
+        });
+      } else if (syncProcessing)
+        eventService.emit(EventType.OpenDialog, {
+          dialogName: DialogNames.Sync,
+          options: {
+            props: {
+              dialogType: SyncDialogType.Processing,
+              status: newStatus.synchronizationProgress
+            },
+            modal: true
+          }
+        });
+      else if (syncSuccessful)
+        eventService.emit(EventType.OpenDialog, {
+          dialogName: DialogNames.Sync,
+          options: {
+            props: {
+              dialogType: SyncDialogType.Successful,
+              status: newStatus.synchronizationProgress
+            },
+            modal: true
+          }
+        });
+      else if (syncInitialisationFailed) {
+        eventService.emit(EventType.OpenDialog, {
+          dialogName: DialogNames.Sync,
+          options: {
+            props: {
+              dialogType: SyncDialogType.InitialisingFailed,
+              status: newStatus.synchronizationProgress
+            },
+            modal: true
+          }
+        });
+      } else if (syncUnsuccessful)
+        eventService.emit(EventType.OpenDialog, {
+          dialogName: DialogNames.Sync,
+          options: {
+            props: {
+              dialogType: SyncDialogType.Unsuccessful,
+              status: newStatus.synchronizationProgress
+            },
+            modal: true
+          }
+        });
+    } else if ((syncProcessing || syncInitialising) && !syncProcessingId.value) {
+      console.log('new status', newStatus.synchronizationProgress);
+      syncProcessingId.value = toastService.display(ToastType.Spinner, {
+        type: 'default',
+        title: 'sync.toaster.requested',
+        titleVars: {
+          syncedBy: newStatus.synchronizationProgress?.syncedBy
+        },
+        allModels: newStatus.synchronizationProgress?.allModels || [],
+        syncedModels: newStatus.synchronizationProgress?.syncedModels || [],
+        dismissable: true
+      });
+    } else if (syncSuccessful) {
+      toastService.display(ToastType.Simple, {
+        type: 'default',
+        title: 'sync.toaster.successful'
+      });
+    } else if (syncUnsuccessful || syncInitialisationFailed) {
+      toastService.display(ToastType.Simple, {
+        type: 'default',
+        title: 'sync.toaster.unsuccessful'
+      });
+    }
+  },
+  { immediate: true }
+);
+```
+
+### 2. Ensure `Toaster.vue` Can Handle Dynamic Updates
+
+Make sure `Toaster.vue` is correctly set up to pass dynamic props to the toast components. It looks fine, but ensure no issues in prop passing.
+
+### 3. Make `Spinner.vue` Reactive to Props
+
+Ensure `Spinner.vue` is reactive and updates whenever `allModels` or `syncedModels` props change.
+
+```vue
+<template>
+  <div class="item default">
+    <div class="header">
+      <span class="title semi-bold">{{ titleText }}</span>
+      <app-icon-button
+        v-if="dismissable"
+        :title="t('common.dismiss')"
+        :name="'times'"
+        class="icon-button dismiss"
+        @click="dismiss"
+      />
+    </div>
+    <app-horizontal-spinner class="spinner" :thin="true"></app-horizontal-spinner>
+    <div v-if="allModels && allModels.length && syncedModels && syncedModels.length">
+      <p>All Models: {{ allModels.join(', ') }}</p>
+      <p>Synced Models: {{ syncedModels.join(', ') }}</p>
+    </div>
+  </div>
+</template>
+
+<script setup lang="ts">
+import { onBeforeUnmount, onMounted, watch } from 'vue';
+import AppIconButton from '@/components/common/icon/IconButton.vue';
+import AppHorizontalSpinner from '@/components/common/spinner/HorizontalSpinner.vue';
+import { ToastEvent, toastService } from '@/services/toast.js';
+import { useI18n } from 'vue-i18n';
+
+defineOptions({ name: 'SpinnerToast' });
+
+const props = withDefaults(
+  defineProps<{
+    id: symbol;
+    title: string;
+    titleVars?: Record<string, unknown>;
+    dismissable?: boolean;
+    allModels?: string[];
+    syncedModels?: string[];
+  }>(),
+  {
+    titleVars: () => ({}),
+    dismissable: false,
+    allModels: [],
+    syncedModels: []
+  }
+);
+
+const emit = defineEmits<{ dismiss: [id: symbol] }>();
+
+const { t, te } = useI18n();
+
+const dismiss = () => emit('dismiss', props.id);
+
+const onDismiss = (id: symbol) => {
+  if (id === props.id) {
+    dismiss();
+  }
+};
+
+const titleText: string = te(props.title) ? t(props.title, props.titleVars) : props.title;
+
+onMounted(() => {
+  toastService.on(ToastEvent.Dismiss, onDismiss);
+});
+
+onBeforeUnmount(() => {
+  toastService.off(ToastEvent.Dismiss, onDismiss);
+});
+
+watch(
+  () => props.allModels,
+  (newModels) => {
+    console.log('Updated allModels:', newModels);
+  },
+  { immediate: true }
+);
+
+watch(
+  () => props.syncedModels,
+  (newModels) => {
+    console.log('Updated syncedModels:', newModels);
+  },
+  { immediate: true }
+);
+</script>
+
+<style scoped>
+/* styles */
+</style>
+```
+
+### 4. Synchronize State Across Components
+
+Ensure the state is synchronized and consistent across all components:
+
+1. **Ensure `useSync.ts` Always Sends Data:**
+   - Make sure the data is always being sent and logged correctly.
+
+2. **React to Prop Changes in `Spinner.vue`:**
+   - Use watchers in `Spinner.vue` to reactively update and log changes to props.
+
+### Summary
+
+- **Reactive Data Handling:**
+  - Ensure `useSync.ts` properly watches and passes reactive data.
+- **Prop Handling:**
+  - Ensure `Spinner.vue` is set up to reactively update based on prop changes.
+- **Consistency:**
+  - Use logging to ensure consistency and trace data flow.
+
+By following these steps, you can ensure that `Spinner.vue` correctly receives and updates with the `allModels` and `syncedModels` data consistently. If you continue to see issues, check for any potential race conditions or timing problems that might affect the data flow.
