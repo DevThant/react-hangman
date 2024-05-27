@@ -817,3 +817,335 @@ Ensure the state is synchronized and consistent across all components:
   - Use logging to ensure consistency and trace data flow.
 
 By following these steps, you can ensure that `Spinner.vue` correctly receives and updates with the `allModels` and `syncedModels` data consistently. If you continue to see issues, check for any potential race conditions or timing problems that might affect the data flow.
+
+------
+
+To ensure that the spinner toast actively reflects changes in synchronization status, similar to `Sync.vue`, we need to ensure that the toast updates its state dynamically in response to changes in the synchronization progress. This means the toast should be able to react to multiple state updates and not just a one-time initialization.
+
+### Steps to Ensure Active Reflection of Changes
+
+1. **Emit Updates Continuously:**
+   Ensure that updates to the synchronization status are continuously emitted and handled by the `ToastService`.
+
+2. **Ensure ToastService Can Handle Updates:**
+   Make sure `ToastService` can handle multiple updates for the same toast instance.
+
+3. **Ensure Toaster.vue and Spinner.vue React to Updates:**
+   Ensure `Toaster.vue` and `Spinner.vue` are set up to reactively update when they receive new props.
+
+### Detailed Steps
+
+1. **Emit Updates Continuously in `useSync.ts`:**
+   
+   Make sure you emit toast updates whenever there is a change in synchronization status, not just once.
+
+   ```typescript
+   watch(
+     [syncStatusSubscription, () => isSyncEnabled.value],
+     ([newStatus], [oldStatus]) => {
+       if (!newStatus || !isSyncEnabled.value) {
+         appStore.removeBlockingTask(taskId.value);
+         return;
+       }
+
+       const newSyncStatus = newStatus.synchronizationProgress?.syncProgressStatus;
+       const oldSyncStatus = oldStatus?.synchronizationProgress?.syncProgressStatus;
+
+       const syncedByUser = newStatus.synchronizationProgress?.syncedBy === userDetails.value?.email;
+       const syncProcessing = newSyncStatus === MXSyncProgressStatus.Synchronizing;
+       const syncInitialising = newSyncStatus === MXSyncProgressStatus.Initializing;
+
+       const syncSuccessful =
+         (newSyncStatus === MXSyncProgressStatus.Successful &&
+           oldSyncStatus === MXSyncProgressStatus.Synchronizing) ||
+         (newSyncStatus === MXSyncProgressStatus.Successful &&
+           oldSyncStatus === MXSyncProgressStatus.Initializing);
+
+       const syncUnsuccessful =
+         newSyncStatus === MXSyncProgressStatus.Unsuccessful &&
+         oldSyncStatus === MXSyncProgressStatus.Synchronizing;
+
+       const syncInitialisationFailed =
+         newSyncStatus === MXSyncProgressStatus.InitializationFailed &&
+         oldSyncStatus === MXSyncProgressStatus.Initializing;
+
+       console.log('Sync Status Updated:', newStatus.synchronizationProgress);
+
+       if (syncProcessing || syncInitialising) {
+         toastService.update(syncProcessingId.value, {
+           type: 'default',
+           title: 'sync.toaster.requested',
+           titleVars: {
+             syncedBy: newStatus.synchronizationProgress?.syncedBy
+           },
+           allModels: newStatus.synchronizationProgress?.allModels || [],
+           syncedModels: newStatus.synchronizationProgress?.syncedModels || [],
+           dismissable: true
+         });
+       } else if (syncSuccessful) {
+         toastService.display(ToastType.Simple, {
+           type: 'default',
+           title: 'sync.toaster.successful'
+         });
+       } else if (syncUnsuccessful || syncInitialisationFailed) {
+         toastService.display(ToastType.Simple, {
+           type: 'default',
+           title: 'sync.toaster.unsuccessful'
+         });
+       }
+     },
+     { immediate: true }
+   );
+   ```
+
+2. **Extend `ToastService` to Handle Updates:**
+   
+   Modify the `ToastService` to support updates to existing toasts.
+
+   ```typescript
+   export class ToastService {
+     protected toastComponents = new Map<ToastType, DefineComponent>();
+
+     protected events: Emitter<Events> = mitt<Events>();
+
+     public constructor(protected loggingService: LoggingService) {}
+
+     public registerToast(type: ToastType, toast: any) {
+       this.toastComponents.set(type, toast);
+     }
+
+     public displayWithId(
+       id: symbol,
+       type: ToastType,
+       props: Record<string, unknown> = {},
+       timeout: number | undefined = undefined
+     ): symbol {
+       const properties = { ...props };
+       const component = this.toastComponents.get(type);
+
+       if (!component) this.loggingService.error(`Toast type '${type}' has not been registered.`);
+
+       this.events.emit(ToastEvent.Display, { id, component, properties, timeout });
+       this.loggingService.debug(`Displaying toast of type '${type}'`, properties);
+
+       return id;
+     }
+
+     public update(id: symbol, props: Record<string, unknown> = {}) {
+       const toast = this.toastComponents.get(ToastType.Spinner);
+       if (!toast) return;
+
+       this.events.emit(ToastEvent.Display, { id, component: toast, properties: props });
+       this.loggingService.debug(`Updating toast of type '${ToastType.Spinner}'`, props);
+     }
+
+     public display(
+       type: ToastType,
+       props: Record<string, unknown> = {},
+       timeout: number | undefined = undefined
+     ): symbol {
+       return this.displayWithId(Symbol('toast'), type, props, timeout);
+     }
+
+     public dismiss(id: symbol): void {
+       this.events.emit(ToastEvent.Dismiss, id);
+     }
+
+     public closeAll(): void {
+       this.events.emit(ToastEvent.CloseAll);
+     }
+
+     public on<Type extends ToastEvent.CloseAll>(type: Type, callback: Function): void;
+     public on<Type extends ToastEvent.Dismiss>(type: Type, callback: Function): void;
+     public on<Type extends ToastEvent.Display>(type: Type, callback: (toast: Toast) => void): void;
+     public on<T extends ToastEvent>(type: T, callback: Handler<Events[T]>): void {
+       this.events.on(type, callback);
+     }
+
+     public off<T extends ToastEvent>(type: T, callback: Handler<Events[T]>): void {
+       this.events.off(type, callback);
+     }
+   }
+
+   export const toastService = new ToastService(commonLoggingService);
+   ```
+
+3. **Ensure `Toaster.vue` Handles Updates Correctly:**
+
+   Ensure `Toaster.vue` listens for updates and passes them to `Spinner.vue`.
+
+   ```vue
+   <template>
+     <transition-group
+       v-if="displayedToasts.length"
+       name="list"
+       tag="div"
+       class="container lead"
+       data-testid="toaster"
+     >
+       <component
+         :is="toast.component"
+         v-for="toast in displayedToasts"
+         :key="toast.id"
+         v-bind="{ id: toast.id, class: 'toast', ...toast.properties }"
+         @click="toast.properties.onClick"
+         @dismiss="removeToast"
+       />
+     </transition-group>
+   </template>
+
+   <script setup lang="ts">
+   import { onBeforeUnmount, onMounted, ref, shallowRef } from 'vue';
+
+   import { toastService, ToastEvent, Toast } from '@/services/toast.js';
+
+   defineOptions({ name: 'Toaster' });
+
+   const displayedToasts = shallowRef<Toast[]>([]);
+   const toastTimeouts = ref<Map<symbol, number>>(new Map());
+
+   const removeToast = (id: symbol): void => {
+     if (toastTimeouts.value.has(id)) {
+       window.clearTimeout(toastTimeouts.value.get(id));
+       toastTimeouts.value.delete(id);
+     }
+
+     displayedToasts.value = displayedToasts.value.filter(toast => toast.id !== id);
+   };
+
+   const displayToast = (toast: Toast): void => {
+     const existingToastIndex = displayedToasts.value.findIndex(t => t.id === toast.id);
+     if (existingToastIndex >= 0) {
+       displayedToasts.value[existingToastIndex] = { ...displayedToasts.value[existingToastIndex], ...toast };
+       displayedToasts.value = [...displayedToasts.value]; // force reactivity
+     } else {
+       displayedToasts.value = [...displayedToasts.value, toast];
+     }
+
+     if (toast.timeout) {
+       const timeoutHandle = window.setTimeout(() => {
+         removeToast(toast.id);
+       }, toast.timeout);
+
+       toastTimeouts.value.set(toast.id, timeoutHandle);
+     }
+   };
+
+   const clearAllToasts = () => {
+     displayedToasts.value = [];
+   };
+
+   onMounted(() => {
+     toastService.on(ToastEvent.Display, displayToast);
+     toastService.on(ToastEvent.CloseAll, clearAllToasts);
+   });
+
+   onBeforeUnmount(() => {
+     toastService.off(ToastEvent.Display, displayToast);
+     toastService.off(ToastEvent.CloseAll, clearAllToasts);
+   });
+   </script>
+
+   <style scoped>
+   /* styles */
+   </style>
+   ```
+
+4. **Ensure `Spinner.vue` Reactively Updates:**
+
+   Make sure `Spinner.vue` is set up to reactively update when props change.
+
+   ```vue
+   <template>
+     <div class="item default">
+       <div class="header">
+         <span class="title semi-bold">{{ titleText }}</span>
+         <app-icon-button
+           v-if="dismissable"
+           :title="t('common.dismiss')"
+           :name="'times'"
+           class="icon-button dismiss"
+           @click="dismiss"
+         />
+       </div>
+       <app-horizontal-spinner class="spinner" :thin="true"></app-horizontal-spinner>
+       <div v-if="allModels.length || syncedModels.length">
+         <p>All Models: {{ allModels.join(', ') }}</p>
+         <p>Synced Models: {{ syncedModels.join(', ') }}</p>
+       </div>
+     </div>
+   </template>
+
+   <script setup lang="ts">
+   import { onBeforeUnmount, onMounted, watch } from 'vue';
+   import AppIconButton from '@/components/common/icon/IconButton.vue';
+   import AppHorizontalSpinner from '@/components/common/spinner/HorizontalSpinner.vue';
+   import
+
+ { ToastEvent, toastService } from '@/services/toast.js';
+   import { useI18n } from 'vue-i18n';
+
+   defineOptions({ name: 'SpinnerToast' });
+
+   const props = withDefaults(
+     defineProps<{
+       id: symbol;
+       title: string;
+       titleVars?: Record<string, unknown>;
+       dismissable?: boolean;
+       allModels?: string[];
+       syncedModels?: string[];
+     }>(),
+     {
+       titleVars: () => ({}),
+       dismissable: false,
+       allModels: [],
+       syncedModels: []
+     }
+   );
+
+   const emit = defineEmits<{ dismiss: [id: symbol] }>();
+
+   const { t, te } = useI18n();
+
+   const dismiss = () => emit('dismiss', props.id);
+
+   const onDismiss = (id: symbol) => {
+     if (id === props.id) {
+       dismiss();
+     }
+   };
+
+   const titleText: string = te(props.title) ? t(props.title, props.titleVars) : props.title;
+
+   onMounted(() => {
+     toastService.on(ToastEvent.Dismiss, onDismiss);
+   });
+
+   onBeforeUnmount(() => {
+     toastService.off(ToastEvent.Dismiss, onDismiss);
+   });
+
+   watch(
+     () => props.allModels,
+     (newModels) => {
+       console.log('Updated allModels:', newModels);
+     },
+     { immediate: true }
+   );
+
+   watch(
+     () => props.syncedModels,
+     (newModels) => {
+       console.log('Updated syncedModels:', newModels);
+     },
+     { immediate: true }
+   );
+   </script>
+
+   <style scoped>
+   /* styles */
+   </style>
+   ```
+
+By ensuring the `ToastService` can handle updates and `Toaster.vue` and `Spinner.vue` reactively update with the new data, you should achieve the desired active reflection of synchronization status in the spinner toast.
