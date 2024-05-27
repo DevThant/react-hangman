@@ -1,3 +1,239 @@
+It appears that TypeScript is not recognizing the `ToastEvent.Update` event because we didn't properly extend the type definitions in `ToastService`. Let’s correct that and make sure everything is consistent.
+
+Here’s the revised implementation for the `ToastService` and the related parts:
+
+### Step-by-Step Integration
+
+#### 1. Update `ToastService`
+
+Ensure the `ToastEvent` and `ToastService` are properly defined to handle updates:
+
+```typescript
+import { DefineComponent } from 'vue';
+import mitt, { Emitter, Handler } from 'mitt';
+import { LoggingService } from '@ebitoolmx/logging-service/console';
+import { loggingService as commonLoggingService } from './logging.js';
+
+export enum ToastEvent {
+  Display = 'display',
+  Dismiss = 'dismiss',
+  CloseAll = 'closeAll',
+  Update = 'update' // Add the Update event
+}
+
+export enum ToastType {
+  Simple = 'simple',
+  UpdateAvailable = 'updateAvailable',
+  Spinner = 'spinner',
+  Reconnecting = 'reconnecting',
+  PickUpWhereYouLeftOff = 'pickUpWhereYouLeftOff'
+}
+
+export interface Toast {
+  id: symbol;
+  component?: DefineComponent;
+  properties: Record<string, unknown>;
+  timeout?: number;
+}
+
+type Events = {
+  [ToastEvent.Display]: Toast;
+  [ToastEvent.Dismiss]: symbol;
+  [ToastEvent.CloseAll]: undefined;
+  [ToastEvent.Update]: { id: symbol; props: Record<string, unknown> }; // Add Update event type
+};
+
+/**
+ * Handles toaster events and components for the toaster component.
+ */
+export class ToastService {
+  protected toastComponents = new Map<ToastType, DefineComponent>();
+
+  protected events: Emitter<Events> = mitt<Events>();
+
+  public constructor(protected loggingService: LoggingService) {}
+
+  /**
+   * Registers a toast into the service so that it can be referenced later when displaying
+   */
+  public registerToast(type: ToastType, toast: any) {
+    this.toastComponents.set(type, toast);
+  }
+
+  /**
+   * Displays a toast with a given id and of specified type. This will emit an event to the Toaster
+   * component with the necessary details to display a toast. This is the most low-level endpoint
+   * that all details to be able to display a toast.
+   */
+  public displayWithId(
+    id: symbol,
+    type: ToastType,
+    props: Record<string, unknown> = {},
+    timeout: number | undefined = undefined
+  ): symbol {
+    const properties = { ...props };
+    const component = this.toastComponents.get(type);
+
+    if (!component) this.loggingService.error(`Toast type '${type}' has not been registered.`);
+
+    this.events.emit(ToastEvent.Display, { id, component, properties, timeout });
+    this.loggingService.debug(`Displaying toast of type '${type}'`, properties);
+
+    return id;
+  }
+
+  /**
+   * Displays a toast of a specified type. This will auto generate an id and return it before
+   * emitting an event to the Toaster component. See displayWithId().
+   */
+  public display(
+    type: ToastType,
+    props: Record<string, unknown> = {},
+    timeout: number | undefined = undefined
+  ): symbol {
+    return this.displayWithId(Symbol('toast'), type, props, timeout);
+  }
+
+  /**
+   * Updates the properties of an existing toast.
+   */
+  public update(id: symbol, props: Record<string, unknown>): void {
+    this.events.emit(ToastEvent.Update, { id, props });
+    this.loggingService.debug(`Updating toast with id '${id}'`, props);
+  }
+
+  /**
+   * Dismisses a toast with the provided id if it is still present on the screen.
+   */
+  public dismiss(id: symbol): void {
+    this.events.emit(ToastEvent.Dismiss, id);
+  }
+
+  /**
+   * Closes all toasts
+   */
+  public closeAll(): void {
+    this.events.emit(ToastEvent.CloseAll);
+  }
+
+  public on<Type extends ToastEvent.CloseAll>(type: Type, callback: Function): void;
+  public on<Type extends ToastEvent.Dismiss>(type: Type, callback: Function): void;
+  public on<Type extends ToastEvent.Display>(type: Type, callback: (toast: Toast) => void): void;
+  public on<Type extends ToastEvent.Update>(type: Type, callback: (update: { id: symbol; props: Record<string, unknown> }) => void): void;
+  public on<T extends ToastEvent>(type: T, callback: Handler<Events[T]>): void {
+    this.events.on(type, callback);
+  }
+
+  public off<T extends ToastEvent>(type: T, callback: Handler<Events[T]>): void {
+    this.events.off(type, callback);
+  }
+}
+
+export const toastService = new ToastService(commonLoggingService);
+```
+
+#### 2. Update `Toaster.vue`
+
+Ensure `Toaster.vue` properly listens for the `ToastEvent.Update` event and updates the displayed toasts accordingly:
+
+```vue
+<template>
+  <transition-group
+    v-if="displayedToasts.length"
+    name="list"
+    tag="div"
+    class="container lead"
+    data-testid="toaster"
+  >
+    <component
+      :is="toast.component"
+      v-for="toast in displayedToasts"
+      :key="toast.id"
+      v-bind="{ id: toast.id, class: 'toast', ...toast.properties }"
+      @click="toast.properties.onClick"
+      @dismiss="removeToast"
+    />
+  </transition-group>
+</template>
+
+<script setup lang="ts">
+import { onBeforeUnmount, onMounted, ref, shallowRef } from 'vue';
+
+import { toastService, ToastEvent, Toast } from '@/services/toast.js';
+
+defineOptions({ name: 'Toaster' });
+
+const displayedToasts = shallowRef<Toast[]>([]);
+const toastTimeouts = ref<Map<symbol, number>>(new Map());
+
+const removeToast = (id: symbol): void => {
+  if (toastTimeouts.value.has(id)) {
+    window.clearTimeout(toastTimeouts.value.get(id));
+    toastTimeouts.value.delete(id);
+  }
+
+  displayedToasts.value = displayedToasts.value.filter(toast => toast.id !== id);
+};
+
+const displayToast = (toast: Toast): void => {
+  displayedToasts.value = [...displayedToasts.value, toast];
+
+  if (toast.timeout) {
+    const timeoutHandle = window.setTimeout(() => {
+      removeToast(toast.id);
+    }, toast.timeout);
+
+    toastTimeouts.value.set(toast.id, timeoutHandle);
+  }
+};
+
+const updateToast = ({ id, props }: { id: symbol; props: Record<string, unknown> }): void => {
+  const toastIndex = displayedToasts.value.findIndex(toast => toast.id === id);
+  if (toastIndex !== -1) {
+    displayedToasts.value[toastIndex].properties = {
+      ...displayedToasts.value[toastIndex].properties,
+      ...props
+    };
+    // Trigger Vue reactivity by creating a new array
+    displayedToasts.value = [...displayedToasts.value];
+  }
+};
+
+const clearAllToasts = () => {
+  displayedToasts.value = [];
+};
+
+onMounted(() => {
+  toastService.on(ToastEvent.Display, displayToast);
+  toastService.on(ToastEvent.CloseAll, clearAllToasts);
+  toastService.on(ToastEvent.Update, updateToast);
+});
+
+onBeforeUnmount(() => {
+  toastService.off(ToastEvent.Display, displayToast);
+  toastService.off(ToastEvent.CloseAll, clearAllToasts);
+  toastService.off(ToastEvent.Update, updateToast);
+});
+</script>
+
+<style scoped>
+/* styles */
+</style>
+```
+
+### Summary
+
+1. **Ensure `ToastService` Handles `ToastEvent.Update`:**
+   - Define the `ToastEvent.Update` event and update method properly.
+
+2. **Update `Toaster.vue`:**
+   - Ensure `Toaster.vue` listens for the `ToastEvent.Update` event and updates the props of existing toasts accordingly.
+
+By following these steps, you should be able to ensure that the spinner toast in `Spinner.vue` actively reflects the changes from `useSync.ts`, just like `Sync.vue`.
+
+
+--------------
+
 Let's fully integrate the `update` method into the `ToastService`. We'll need to:
 
 1. Add the `update` method to the `ToastService`.
