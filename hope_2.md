@@ -1,3 +1,168 @@
+To make the `SpinnerToast` component look like the one in the image, we'll need to update the template and styles. The displayed text will be localized using i18n. Here's the updated code:
+
+### `SpinnerToast.vue`
+
+```vue
+<template>
+  <div class="item default">
+    <div class="header">
+      <span class="title semi-bold">{{ titleText }}</span>
+      <app-icon-button
+        v-if="dismissable"
+        :title="t('common.dismiss')"
+        :name="'times'"
+        class="icon-button dismiss"
+        @click="dismiss"
+      />
+    </div>
+    <div class="content">
+      <p>{{ t('sync.toaster.requested', { syncedBy: titleVars.syncedBy }) }}</p>
+      <p>{{ t('sync.toaster.progress', { done: syncedModels.length, total: allModels.length }) }}</p>
+    </div>
+    <app-horizontal-spinner class="spinner" :thin="true"></app-horizontal-spinner>
+  </div>
+</template>
+
+<script setup lang="ts">
+import { onBeforeUnmount, onMounted, watch } from 'vue';
+import AppIconButton from '@/components/common/icon/IconButton.vue';
+import AppHorizontalSpinner from '@/components/common/spinner/HorizontalSpinner.vue';
+import { ToastEvent, toastService } from '@/services/toast.js';
+import { useI18n } from 'vue-i18n';
+
+defineOptions({ name: 'SpinnerToast' });
+
+const props = withDefaults(
+  defineProps<{
+    id: symbol;
+    title: string;
+    titleVars?: Record<string, unknown>;
+    dismissable?: boolean;
+    allModels?: string[];
+    syncedModels?: string[];
+  }>(),
+  {
+    titleVars: () => ({}),
+    dismissable: false,
+    allModels: [],
+    syncedModels: []
+  }
+);
+
+const emit = defineEmits<{ dismiss: [id: symbol] }>();
+
+const { t, te } = useI18n();
+
+const dismiss = () => emit('dismiss', props.id);
+
+const onDismiss = (id: symbol) => {
+  if (id === props.id) {
+    dismiss();
+  }
+};
+
+const titleText: string = te(props.title) ? t(props.title, props.titleVars) : props.title;
+
+onMounted(() => {
+  toastService.on(ToastEvent.Dismiss, onDismiss);
+});
+
+onBeforeUnmount(() => {
+  toastService.off(ToastEvent.Dismiss, onDismiss);
+});
+
+watch(
+  () => props.allModels,
+  newModels => {
+    console.log('Updated allModels:', newModels);
+  },
+  { immediate: true }
+);
+
+watch(
+  () => props.syncedModels,
+  newModels => {
+    console.log('Updated syncedModels:', newModels);
+  },
+  { immediate: true }
+);
+</script>
+
+<style scoped>
+.item {
+  background-color: var(--toaster-background-color-default);
+  border: 1px solid var(--toaster-border-color-default);
+  border-radius: var(--base-radius);
+  padding: var(--base-spacing-3);
+  box-shadow: var(--toaster-box-shadow);
+  color: var(--white);
+}
+
+.header {
+  display: flex;
+  flex-direction: row;
+  align-items: flex-start;
+  justify-content: space-between;
+}
+
+.header .title {
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.header .dismiss {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: var(--white);
+}
+
+.content {
+  margin: var(--base-spacing-2) 0;
+}
+
+.content p {
+  margin: 0;
+  font-size: 14px;
+}
+
+.spinner {
+  margin-top: var(--base-spacing-2);
+}
+</style>
+```
+
+### i18n Localization
+
+Ensure that your localization files include the necessary keys:
+
+```json
+{
+  "sync": {
+    "toaster": {
+      "requested": "Synchronization has been requested by {syncedBy}.",
+      "progress": "{done}/{total} models are done."
+    }
+  },
+  "common": {
+    "dismiss": "Dismiss"
+  }
+}
+```
+
+### Explanation
+
+1. **Template Changes:**
+   - The text content within the `<div class="content">` uses i18n to display localized strings for synchronization status and progress.
+   - The progress information (`{done}/{total} models are done.`) is dynamically populated using `syncedModels.length` and `allModels.length`.
+
+2. **CSS Changes:**
+   - Adjusted styles to match the provided design, including margins, padding, and font sizes.
+
+This should make your `SpinnerToast` component match the provided design and display the synchronization progress as expected.
+
+
+-----------
 The issue you're encountering is due to a mismatch in the types expected by the `update` method in the `ToastService`. Specifically, the `update` method expects the first parameter to be a `symbol`, which is the ID of the toast, but you're passing an enum value (`ToastType.Spinner`).
 
 To fix this, you need to keep track of the ID of the spinner toast when it's initially created, and then use that ID when calling the `update` method. Here's how you can do it:
