@@ -1,4 +1,505 @@
+To ensure the toast updates correctly with the synchronization progress, let's go through the necessary steps to verify and fix the implementation. 
 
+### Ensure `ToastEvent.Update` Handling in `Toaster.vue`
+
+First, let's make sure that the `Toaster.vue` is correctly handling the `ToastEvent.Update` event.
+
+#### `Toaster.vue`
+
+```vue
+<template>
+  <transition-group
+    v-if="displayedToasts.length"
+    name="list"
+    tag="div"
+    class="container lead"
+    data-testid="toaster"
+  >
+    <component
+      :is="toast.component"
+      v-for="toast in displayedToasts"
+      :key="toast.id"
+      v-bind="{ id: toast.id, class: 'toast', ...toast.properties }"
+      @click="toast.properties.onClick"
+      @dismiss="removeToast"
+    />
+  </transition-group>
+</template>
+
+<script setup lang="ts">
+import { onBeforeUnmount, onMounted, ref, shallowRef } from 'vue';
+
+import { toastService, ToastEvent, Toast } from '@/services/toast.js';
+
+defineOptions({ name: 'Toaster' });
+
+const displayedToasts = shallowRef<Toast[]>([]);
+const toastTimeouts = ref<Map<symbol, number>>(new Map());
+
+const removeToast = (id: symbol): void => {
+  if (toastTimeouts.value.has(id)) {
+    window.clearTimeout(toastTimeouts.value.get(id));
+    toastTimeouts.value.delete(id);
+  }
+
+  displayedToasts.value = displayedToasts.value.filter(toast => toast.id !== id);
+};
+
+const displayToast = (toast: Toast): void => {
+  displayedToasts.value = [...displayedToasts.value, toast];
+
+  if (toast.timeout) {
+    const timeoutHandle = window.setTimeout(() => {
+      removeToast(toast.id);
+    }, toast.timeout);
+
+    toastTimeouts.value.set(toast.id, timeoutHandle);
+  }
+};
+
+const updateToast = ({ id, props }: { id: symbol; props: Record<string, unknown> }): void => {
+  const toastIndex = displayedToasts.value.findIndex(toast => toast.id === id);
+  if (toastIndex !== -1) {
+    displayedToasts.value[toastIndex].properties = {
+      ...displayedToasts.value[toastIndex].properties,
+      ...props
+    };
+    // Trigger Vue reactivity by creating a new array
+    displayedToasts.value = [...displayedToasts.value];
+  }
+};
+
+const clearAllToasts = () => {
+  displayedToasts.value = [];
+};
+
+onMounted(() => {
+  toastService.on(ToastEvent.Display, displayToast);
+  toastService.on(ToastEvent.CloseAll, clearAllToasts);
+  toastService.on(ToastEvent.Update, updateToast);
+});
+
+onBeforeUnmount(() => {
+  toastService.off(ToastEvent.Display, displayToast);
+  toastService.off(ToastEvent.CloseAll, clearAllToasts);
+  toastService.off(ToastEvent.Update, updateToast);
+});
+</script>
+
+<style scoped>
+.container {
+  position: absolute;
+  width: 100%;
+  min-height: 24px;
+  display: flex;
+  flex-direction: column;
+  align-content: flex-end;
+  z-index: 101;
+  background: transparent;
+  font-family: var(--font-family);
+}
+
+.container > * {
+  position: relative;
+  width: 100%;
+  display: block;
+  padding: var(--base-spacing-7);
+  margin: var(--base-spacing-0);
+  border-radius: var(--base-radius);
+  overflow: hidden;
+  z-index: 3;
+  color: var(--white);
+  background: var(--toaster-background-color-default);
+}
+
+.container > *.default {
+  background: var(--toaster-background-color-default);
+  border: 2px solid var(--toaster-border-color-default);
+}
+
+.container > *.info {
+  background: var(--toaster-background-color-info);
+  border: 0;
+}
+
+.container > *.warning {
+  background: var(--toaster-background-color-default);
+  border: 2px solid var(--toaster-border-color-warning);
+}
+
+.container > *.error {
+  background: var(--toaster-background-color-default);
+  border: 2px solid var(--toaster-border-color-error);
+}
+
+.list-enter-active {
+  transition: all 0.8s linear;
+}
+
+.list-leave-active {
+  transition: all 0.4s linear;
+}
+
+.list-enter {
+  opacity: 0;
+}
+
+.list-leave-to {
+  opacity: 0;
+}
+</style>
+```
+
+### Ensure `ToastEvent.Update` Handling in `toast.ts`
+
+Next, let's verify the `toast.ts` file is correctly handling the `ToastEvent.Update` event.
+
+#### `toast.ts`
+
+```typescript
+import { DefineComponent } from 'vue';
+import mitt, { Emitter, Handler } from 'mitt';
+import { LoggingService } from '@ebitoolmx/logging-service/console';
+import { loggingService as commonLoggingService } from './logging.js';
+
+export enum ToastEvent {
+  Display = 'display',
+  Dismiss = 'dismiss',
+  CloseAll = 'closeAll',
+  Update = 'update'
+}
+
+export enum ToastType {
+  Simple = 'simple',
+  UpdateAvailable = 'updateAvailable',
+  Spinner = 'spinner',
+  Reconnecting = 'reconnecting',
+  PickUpWhereYouLeftOff = 'pickUpWhereYouLeftOff'
+}
+
+/**
+ * All the required details for displaying a toast in the Toaster component.
+ */
+export interface Toast {
+  id: symbol;
+  component?: DefineComponent;
+  properties: Record<string, unknown>;
+  timeout?: number;
+}
+
+type Events = {
+  [ToastEvent.Display]: Toast;
+  [ToastEvent.Dismiss]: symbol;
+  [ToastEvent.CloseAll]: undefined;
+  [ToastEvent.Update]: { id: symbol; props: Record<string, unknown> };
+};
+
+/**
+ * Handles toaster events and components for the toaster component.
+ */
+export class ToastService {
+  protected toastComponents = new Map<ToastType, DefineComponent>();
+
+  protected events: Emitter<Events> = mitt<Events>();
+
+  public constructor(protected loggingService: LoggingService) {}
+
+  /**
+   * Registers a toast into the service so that it can be referenced later when displaying
+   */
+  public registerToast(type: ToastType, toast: any) {
+    this.toastComponents.set(type, toast);
+  }
+
+  /**
+   * Displays a toast with a given id and of specified type. This will emit an event to the Toaster
+   * component with the necessary details to display a toast. This is the most low-level endpoint
+   * that all details to be able to display a toast.
+   */
+  public displayWithId(
+    id: symbol,
+    type: ToastType,
+    props: Record<string, unknown> = {},
+    timeout: number | undefined = undefined
+  ): symbol {
+    const properties = { ...props };
+    const component = this.toastComponents.get(type);
+
+    if (!component) this.loggingService.error(`Toast type '${type}' has not been registered.`);
+
+    this.events.emit(ToastEvent.Display, { id, component, properties, timeout });
+    this.loggingService.debug(`Displaying toast of type '${type}'`);
+
+    return id;
+  }
+
+  /**
+   * Displays a toast of a specified type. This will auto generate an id and return it before
+   * emitting an event to the Toaster component. See displayWithId().
+   */
+  public display(
+    type: ToastType,
+    props: Record<string, unknown> = {},
+    timeout: number | undefined = undefined
+  ): symbol {
+    return this.displayWithId(Symbol('toast'), type, props, timeout);
+  }
+
+  /**
+   * Updates a toast with a given id and new properties. This will emit an update event to the
+   * Toaster component to update the toast's properties.
+   */
+  public update(id: symbol, props: Record<string, unknown>): void {
+    this.events.emit(ToastEvent.Update, { id, props });
+  }
+
+  /**
+   * Dismisses a toast with the provided id if it is still present on the screen.
+   */
+  public dismiss(id: symbol): void {
+    this.events.emit(ToastEvent.Dismiss, id);
+  }
+
+  /**
+   * Closes all toasts
+   */
+  public closeAll(): void {
+    this.events.emit(ToastEvent.CloseAll);
+  }
+
+  /**
+   * Subscribe to the closeAll toast event in the toast service
+   */
+  public on<Type extends ToastEvent.CloseAll>(type: Type, callback: Function): void;
+
+  /**
+   * Subscribe to the dismiss toast event in the toast service
+   */
+  public on<Type extends ToastEvent.Dismiss>(type: Type, callback: Function): void;
+
+  /**
+   * Subscribe to the display toast event. This event will pass information about the toast to be
+   * displayed.
+   */
+  public on<Type extends ToastEvent.Display>(type: Type, callback: (toast: Toast) => void): void;
+
+  /**
+   * Subscribe to the update toast event. This event will pass information about the toast to be
+   * updated.
+   */
+  public on<Type extends ToastEvent.Update>(type: Type, callback: (update: { id: symbol; props: Record<string, unknown> }) => void): void;
+
+  /**
+   * A fallback type for subscribing to events in the toast service.
+   */
+  public on<T extends ToastEvent>(type: T, callback: Handler<Events[T]>): void {
+    this.events.on(type, callback);
+  }
+
+  /**
+   * Unsubscribe from from an event in the toast service
+   */
+  public off<T extends ToastEvent>(type: T, callback: Handler<Events[T]>): void {
+    this.events.off(type, callback);
+  }
+}
+
+export const toastService = new ToastService(commonLoggingService);
+```
+
+### Ensure `useSync.ts` Correctly Calls `toastService.update`
+
+Finally, ensure that `useSync.ts` correctly calls the `toastService.update` function to update the toast properties.
+
+#### `useSync.ts`
+
+```typescript
+import { eventService, EventType } from '@/services/event.js';
+import { toastService, ToastType } from '@/services/toast.js';
+import { useProductsStore } from '@/stores/products.js';
+import { useAppStore } from '@/stores/app.js';
+import { DialogNames } from '@/typings/dialog.js';
+import { SyncDialogType } from '@/typings/sync.js';
+import { onBeforeUnmount, Ref, ref, watch } from 'vue';
+import {
+  MXSynchronizationProgressSubscription,
+  MXSyncProgressStatus
+} from '@ebitoolmx/gateway-types';
+import { useAuthService } from '@/auth/index.js';
+
+export function useSync(
+  isSyncEnabled: Ref<boolean>,
+  syncStatusSubscription: Ref<MXSynchronizationProgressSubscription | null>
+) {
+  const appStore = useAppStore();
+  const productsStore = useProductsStore();
+  const { userDetails } = useAuthService();
+
+  const syncProcessingId = ref<symbol | null>(null);
+  const taskId = ref<symbol>(Symbol(productsStore.activeProductId));
+
+  watch(
+    () => productsStore.activeProductId,
+    (newId, oldId) => {
+      if (newId !== oldId) {
+        appStore.removeBlockingTask(taskId.value);
+        taskId.value = Symbol(newId);
+      }
+    }
+  );
+
+  watch(
+    [syncStatusSubscription, () => isSyncEnabled.value],
+    ([newStatus], [oldStatus]) => {
+      if (!newStatus || !isSyncEnabled.value) {
+        appStore.removeBlockingTask(taskId.value);
+        return;
+      }
+
+      const newSyncStatus = newStatus.synchronizationProgress?.syncProgressStatus;
+      const oldSyncStatus = oldStatus?.synchronizationProgress?.syncProgressStatus;
+
+      const syncedByUser = newStatus.synchronizationProgress?.syncedBy === userDetails.value?.email;
+      const syncProcessing = newSyncStatus === MXSyncProgressStatus.Synchronizing;
+      const syncInitialising = newSyncStatus === MXSyncProgressStatus.Initializing;
+
+      const syncSuccessful =
+        (newSyncStatus === MXSyncProgressStatus.Successful &&
+          oldSyncStatus === MXSyncProgressStatus.Synchronizing) ||
+        (newSyncStatus === MXSyncProgressStatus.Successful &&
+          oldSyncStatus === MXSyncProgressStatus.Initializing);
+
+      const syncUnsuccessful =
+        newSyncStatus === MXSyncProgressStatus.Unsuccessful &&
+        oldSyncStatus === MXSyncProgressStatus.Synchronizing;
+
+      const syncInitialisationFailed =
+        newSyncStatus === MXSyncProgressStatus.InitializationFailed &&
+        oldSyncStatus === MXSyncProgressStatus.Initializing;
+
+      if (syncProcessing) {
+        appStore.addBlockingTask(taskId.value);
+        if (syncProcessingId.value) {
+          toastService.update(syncProcessingId.value, {
+            message: 'sync.toaster.progress',
+            messageVars: {
+              done: newStatus.synchronizationProgress?.syncedModels.length || 0,
+              total: newStatus.synchronizationProgress?.allModels.length || 0
+            }
+          });
+        }
+      } else {
+        appStore.removeBlockingTask(taskId.value);
+        if (syncProcessingId.value) {
+          toastService.dismiss(syncProcessingId.value);
+          syncProcessingId.value = null;
+        }
+      }
+
+      if (syncedByUser) {
+        if (syncInitialising) {
+          eventService.emit(EventType.OpenDialog, {
+            dialogName: DialogNames.Sync,
+            options: {
+              props: {
+                dialogType: SyncDialogType.Initialising,
+                status: newStatus.synchronizationProgress
+              },
+              modal: true
+            }
+          });
+        } else if (syncProcessing) {
+          eventService.emit(EventType.OpenDialog, {
+            dialogName: DialogNames.Sync,
+            options: {
+              props: {
+                dialogType: SyncDialogType.Processing,
+                status: newStatus.synchronizationProgress
+              },
+              modal: true
+            }
+          });
+        } else if (syncSuccessful) {
+          eventService.emit(EventType.OpenDialog, {
+            dialogName: DialogNames.Sync,
+            options: {
+              props: {
+                dialogType: SyncDialogType.Successful,
+                status: newStatus.synchronizationProgress
+              },
+              modal: true
+            }
+          });
+        } else if (syncInitialisationFailed) {
+          eventService.emit(EventType.OpenDialog, {
+            dialogName: DialogNames.Sync,
+            options: {
+              props: {
+                dialogType: SyncDialogType.InitialisingFailed,
+                status: newStatus.synchronizationProgress
+              },
+              modal: true
+            }
+          });
+        } else if (syncUnsuccessful) {
+          eventService.emit(EventType.OpenDialog, {
+            dialogName: DialogNames.Sync,
+            options: {
+              props: {
+                dialogType: SyncDialogType.Unsuccessful,
+                status: newStatus.synchronizationProgress
+              },
+              modal: true
+            }
+          });
+        }
+      } else if ((syncProcessing || syncInitialising) && !syncProcessingId.value) {
+        console.log('new status', newStatus.synchronizationProgress);
+        syncProcessingId.value = toastService.display(ToastType.Spinner, {
+          type: 'default',
+          title: 'sync.toaster.requested',
+          titleVars: {
+            syncedBy: newStatus.synchronizationProgress?.syncedBy
+          },
+          message: 'sync.toaster.progress',
+          messageVars: {
+            done: newStatus.synchronizationProgress?.syncedModels.length || 0,
+            total: newStatus.synchronizationProgress?.allModels.length || 0
+          },
+          dismissable: true
+        });
+      } else if (syncSuccessful) {
+        toastService.display(ToastType.Simple, {
+          type: 'default',
+          title: 'sync.toaster.successful'
+        });
+      } else if (syncUnsuccessful || syncInitialisationFailed) {
+        toastService.display(ToastType.Simple, {
+          type: 'default',
+          title: 'sync.toaster.unsuccessful'
+        });
+      }
+    },
+    { immediate: true }
+  );
+
+  onBeforeUnmount(() => {
+    if (syncProcessingId.value) toastService.dismiss(syncProcessingId.value);
+    appStore.removeBlockingTask(taskId.value);
+  });
+}
+```
+
+### Summary
+
+- Ensure the `Toaster.vue` component listens for `ToastEvent.Update` and correctly updates the toast properties.
+- Ensure the `toast.ts` file emits `ToastEvent.Update` with the correct properties.
+- Ensure `useSync.ts` calls `toastService.update` with the correct toast ID and properties.
+
+With these steps, the spinner toast should correctly update its message and other properties based on the synchronization progress.
+
+
+-----
 Absolutely, we can make the `SpinnerToast` component more generic by passing a `message` prop instead of the sync-specific properties. This way, the component won't have any sync-specific logic and can be used for any type of spinner toast.
 
 ### Updated `SpinnerToast.vue`
