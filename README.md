@@ -1,3 +1,177 @@
+### Explanation of Spread Operator
+
+The spread operator (`...`) in JavaScript (and TypeScript) is used to create shallow copies of arrays or objects. In the context of your `displayWithId` method, `const properties = {...props}` creates a new object that contains all the properties of `props`. This is useful when you want to ensure that `properties` is a distinct object, even if it has the same properties as `props`.
+
+#### Example:
+```typescript
+const props = { a: 1, b: 2 };
+const properties = { ...props };
+
+// properties is now { a: 1, b: 2 }, but it's a new object, not a reference to props
+```
+
+### Difference:
+- **`const properties = {...props}`:** Creates a new object with the same properties as `props`. This ensures that any modifications to `properties` do not affect the original `props` object.
+- **`const properties = props`:** Assigns the reference of `props` to `properties`. Any changes to `properties` will also affect `props` because they reference the same object.
+
+In most cases, using the spread operator is a good practice to prevent unintended side effects by ensuring a new object is created. However, if you are certain that `props` won't be modified, you can simply assign `props` to `properties`.
+
+### Updated `ToastService` with Comments
+
+Here’s the updated `ToastService` with appropriate comments for the `displayWithId` and `update` methods, following the same format as other comments:
+
+```typescript
+import { DefineComponent } from 'vue';
+import mitt, { Emitter, Handler } from 'mitt';
+import { LoggingService } from '@ebitoolmx/logging-service/console';
+import { loggingService as commonLoggingService } from './logging.js';
+
+export enum ToastEvent {
+  Display = 'display',
+  Dismiss = 'dismiss',
+  CloseAll = 'closeAll',
+  Update = 'update' // Added the Update event
+}
+
+export enum ToastType {
+  Simple = 'simple',
+  UpdateAvailable = 'updateAvailable',
+  Spinner = 'spinner',
+  Reconnecting = 'reconnecting',
+  PickUpWhereYouLeftOff = 'pickUpWhereYouLeftOff'
+}
+
+/**
+ * All the required details for displaying a toast in the Toaster component.
+ */
+export interface Toast {
+  id: symbol;
+  component?: DefineComponent;
+  properties: Record<string, unknown>;
+  timeout?: number;
+}
+
+type Events = {
+  [ToastEvent.Display]: Toast;
+  [ToastEvent.Dismiss]: symbol;
+  [ToastEvent.CloseAll]: undefined;
+  [ToastEvent.Update]: { id: symbol; props: Record<string, unknown> }; // Added Update event type
+};
+
+/**
+ * Handles toaster events and components for the toaster component.
+ */
+export class ToastService {
+  protected toastComponents = new Map<ToastType, DefineComponent>();
+
+  protected events: Emitter<Events> = mitt<Events>();
+
+  public constructor(protected loggingService: LoggingService) {}
+
+  /**
+   * Registers a toast into the service so that it can be referenced later when displaying
+   */
+  public registerToast(type: ToastType, toast: any) {
+    this.toastComponents.set(type, toast);
+  }
+
+  /**
+   * Displays a toast with a given id and of specified type. This will emit an event to the Toaster
+   * component with the necessary details to display a toast. This is the most low-level endpoint
+   * that all details to be able to display a toast.
+   *
+   * @param id - The unique identifier for the toast.
+   * @param type - The type of toast to be displayed.
+   * @param props - Additional properties to be passed to the toast component.
+   * @param timeout - The duration (in milliseconds) for which the toast should be displayed.
+   * @returns The unique identifier for the toast.
+   */
+  public displayWithId(
+    id: symbol,
+    type: ToastType,
+    props: Record<string, unknown> = {},
+    timeout: number | undefined = undefined
+  ): symbol {
+    const properties = { ...props }; // Spreading props to ensure a new object is created
+    const component = this.toastComponents.get(type);
+
+    if (!component) this.loggingService.error(`Toast type '${type}' has not been registered.`);
+
+    this.events.emit(ToastEvent.Display, { id, component, properties, timeout });
+    this.loggingService.debug(`Displaying toast of type '${type}'`, properties);
+
+    return id;
+  }
+
+  /**
+   * Displays a toast of a specified type. This will auto generate an id and return it before
+   * emitting an event to the Toaster component. See displayWithId().
+   *
+   * @param type - The type of toast to be displayed.
+   * @param props - Additional properties to be passed to the toast component.
+   * @param timeout - The duration (in milliseconds) for which the toast should be displayed.
+   * @returns The unique identifier for the toast.
+   */
+  public display(
+    type: ToastType,
+    props: Record<string, unknown> = {},
+    timeout: number | undefined = undefined
+  ): symbol {
+    return this.displayWithId(Symbol('toast'), type, props, timeout);
+  }
+
+  /**
+   * Updates the properties of an existing toast.
+   *
+   * @param id - The unique identifier of the toast to be updated.
+   * @param props - The new properties to be merged with the existing properties of the toast.
+   */
+  public update(id: symbol, props: Record<string, unknown>): void {
+    this.events.emit(ToastEvent.Update, { id, props });
+    this.loggingService.debug(`Updating toast with id '${id}'`, props);
+  }
+
+  /**
+   * Dismisses a toast with the provided id if it is still present on the screen.
+   *
+   * @param id - The unique identifier of the toast to be dismissed.
+   */
+  public dismiss(id: symbol): void {
+    this.events.emit(ToastEvent.Dismiss, id);
+  }
+
+  /**
+   * Closes all toasts
+   */
+  public closeAll(): void {
+    this.events.emit(ToastEvent.CloseAll);
+  }
+
+  public on<Type extends ToastEvent.CloseAll>(type: Type, callback: Function): void;
+  public on<Type extends ToastEvent.Dismiss>(type: Type, callback: Function): void;
+  public on<Type extends ToastEvent.Display>(type: Type, callback: (toast: Toast) => void): void;
+  public on<Type extends ToastEvent.Update>(type: Type, callback: (update: { id: symbol; props: Record<string, unknown> }) => void): void;
+  public on<T extends ToastEvent>(type: T, callback: Handler<Events[T]>): void {
+    this.events.on(type, callback);
+  }
+
+  public off<T extends ToastEvent>(type: T, callback: Handler<Events[T]>): void {
+    this.events.off(type, callback);
+  }
+}
+
+export const toastService = new ToastService(commonLoggingService);
+```
+
+### Summary
+
+- **Spread Operator:** Using the spread operator ensures a new object is created, preventing unintended side effects.
+- **Comments:** Added comments to the `displayWithId` and `update` methods following the existing format for consistency.
+
+By following these updates, your `ToastService` will handle updates correctly, and the comments will provide clear documentation for future maintenance and understanding.
+
+
+------
 To combine both messages into one and ensure the progress message is shown, we need to adjust how the message is composed and displayed in `Spinner.vue`. We will concatenate the existing message (`titleText`) and the progress message (`progressMessage`).
 
 Here is the updated code for `Spinner.vue`:
