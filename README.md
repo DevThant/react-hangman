@@ -1,3 +1,169 @@
+To ensure the `SpinnerToast` component is more generic and only displays synchronization progress when it is related to sync, we can introduce a prop to conditionally render the sync-related content. Here’s how we can update the `SpinnerToast.vue` component:
+
+### Updated `SpinnerToast.vue`
+
+```vue
+<template>
+  <div class="item default">
+    <div class="header">
+      <span class="title semi-bold">{{ titleText }}</span>
+      <app-icon-button
+        v-if="dismissable"
+        :title="t('common.dismiss')"
+        :name="'times'"
+        class="icon-button dismiss"
+        @click="dismiss"
+      />
+    </div>
+    <div class="content">
+      <p v-if="isSync">{{ t('sync.toaster.requested', { syncedBy: titleVars.syncedBy }) }}</p>
+      <p v-if="isSync">{{ t('sync.toaster.progress', { done: syncedModels.length, total: allModels.length }) }}</p>
+      <slot v-else></slot>
+    </div>
+    <app-horizontal-spinner class="spinner" :thin="true"></app-horizontal-spinner>
+  </div>
+</template>
+
+<script setup lang="ts">
+import { onBeforeUnmount, onMounted } from 'vue';
+import AppIconButton from '@/components/common/icon/IconButton.vue';
+import AppHorizontalSpinner from '@/components/common/spinner/HorizontalSpinner.vue';
+import { ToastEvent, toastService } from '@/services/toast.js';
+import { useI18n } from 'vue-i18n';
+
+defineOptions({ name: 'SpinnerToast' });
+
+const props = withDefaults(
+  defineProps<{
+    id: symbol;
+    title: string;
+    titleVars?: Record<string, unknown>;
+    dismissable?: boolean;
+    allModels?: string[];
+    syncedModels?: string[];
+    isSync?: boolean;
+  }>(),
+  {
+    titleVars: () => ({}),
+    dismissable: false,
+    allModels: () => [],
+    syncedModels: () => [],
+    isSync: false
+  }
+);
+
+const emit = defineEmits<{ dismiss: [id: symbol] }>();
+
+const { t, te } = useI18n();
+
+const dismiss = () => emit('dismiss', props.id);
+
+const onDismiss = (id: symbol) => {
+  if (id === props.id) {
+    dismiss();
+  }
+};
+
+const titleText: string = te(props.title) ? t(props.title, props.titleVars) : props.title;
+
+onMounted(() => {
+  toastService.on(ToastEvent.Dismiss, onDismiss);
+});
+
+onBeforeUnmount(() => {
+  toastService.off(ToastEvent.Dismiss, onDismiss);
+});
+</script>
+
+<style scoped>
+.icon-button {
+  background-color: transparent;
+  border-width: 0;
+  padding: 0;
+  height: 16px;
+  width: 16px;
+  cursor: pointer;
+}
+
+.header {
+  display: flex;
+  flex-direction: row;
+  align-items: flex-start;
+  width: 100%;
+}
+
+.header .title {
+  flex-grow: 1;
+  padding-right: var(--base-spacing-0);
+}
+
+.header .dismiss {
+  fill: var(--toaster-dismiss-icon);
+  flex-shrink: 0;
+  height: 16px;
+  width: 16px;
+  font-size: 16px;
+  display: inline-block;
+}
+
+.header .dismiss:hover {
+  fill: var(--toaster-dismiss-icon);
+}
+
+.spinner {
+  margin: 15px 0 15px;
+}
+
+.content p {
+  margin: 0;
+  font-size: 14px;
+}
+</style>
+```
+
+### Explanation
+
+1. **New Prop (`isSync`):**
+   - A new prop `isSync` is added to determine if the toast is related to synchronization.
+   - Default value for `isSync` is set to `false`.
+
+2. **Conditional Rendering:**
+   - The sync-related content (`t('sync.toaster.requested')` and `t('sync.toaster.progress')`) is only displayed if `isSync` is `true`.
+   - A default slot is used for other content when `isSync` is `false`.
+
+3. **Localization Keys:**
+   - Ensure that your localization files include the necessary keys, as mentioned previously.
+
+### Usage Example
+
+When displaying a spinner toast related to sync, ensure `isSync` is set to `true`:
+
+```typescript
+toastService.display(ToastType.Spinner, {
+  type: 'default',
+  title: 'sync.toaster.requested',
+  titleVars: {
+    syncedBy: newStatus.synchronizationProgress?.syncedBy
+  },
+  allModels: newStatus.synchronizationProgress?.allModels || [],
+  syncedModels: newStatus.synchronizationProgress?.syncedModels || [],
+  dismissable: true,
+  isSync: true
+});
+```
+
+For non-sync related spinners, simply omit the `isSync` prop or set it to `false`.
+
+This approach ensures the `SpinnerToast` component remains generic and only shows sync-specific content when appropriate.
+
+
+
+
+
+---------
+
+
+
 You are correct that it's generally a good practice to ensure your branch is up-to-date with the main branch before creating a pull request. This helps avoid conflicts and ensures your changes are compatible with the latest codebase. Here’s a step-by-step process to update your branch and create a pull request:
 
 1. **Switch to your main branch**:
