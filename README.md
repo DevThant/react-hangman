@@ -1,3 +1,307 @@
+
+Absolutely, we can make the `SpinnerToast` component more generic by passing a `message` prop instead of the sync-specific properties. This way, the component won't have any sync-specific logic and can be used for any type of spinner toast.
+
+### Updated `SpinnerToast.vue`
+
+```vue
+<template>
+  <div class="item default">
+    <div class="header">
+      <span class="title semi-bold">{{ titleText }}</span>
+      <app-icon-button
+        v-if="dismissable"
+        :title="t('common.dismiss')"
+        :name="'times'"
+        class="icon-button dismiss"
+        @click="dismiss"
+      />
+    </div>
+    <div class="content">
+      <p>{{ messageText }}</p>
+    </div>
+    <app-horizontal-spinner class="spinner" :thin="true"></app-horizontal-spinner>
+  </div>
+</template>
+
+<script setup lang="ts">
+import { onBeforeUnmount, onMounted } from 'vue';
+import AppIconButton from '@/components/common/icon/IconButton.vue';
+import AppHorizontalSpinner from '@/components/common/spinner/HorizontalSpinner.vue';
+import { ToastEvent, toastService } from '@/services/toast.js';
+import { useI18n } from 'vue-i18n';
+
+defineOptions({ name: 'SpinnerToast' });
+
+const props = withDefaults(
+  defineProps<{
+    id: symbol;
+    title: string;
+    titleVars?: Record<string, unknown>;
+    message: string;
+    messageVars?: Record<string, unknown>;
+    dismissable?: boolean;
+  }>(),
+  {
+    titleVars: () => ({}),
+    messageVars: () => ({}),
+    dismissable: false
+  }
+);
+
+const emit = defineEmits<{ dismiss: [id: symbol] }>();
+
+const { t, te } = useI18n();
+
+const dismiss = () => emit('dismiss', props.id);
+
+const onDismiss = (id: symbol) => {
+  if (id === props.id) {
+    dismiss();
+  }
+};
+
+const titleText: string = te(props.title) ? t(props.title, props.titleVars) : props.title;
+const messageText: string = te(props.message) ? t(props.message, props.messageVars) : props.message;
+
+onMounted(() => {
+  toastService.on(ToastEvent.Dismiss, onDismiss);
+});
+
+onBeforeUnmount(() => {
+  toastService.off(ToastEvent.Dismiss, onDismiss);
+});
+</script>
+
+<style scoped>
+.icon-button {
+  background-color: transparent;
+  border-width: 0;
+  padding: 0;
+  height: 16px;
+  width: 16px;
+  cursor: pointer;
+}
+
+.header {
+  display: flex;
+  flex-direction: row;
+  align-items: flex-start;
+  width: 100%;
+}
+
+.header .title {
+  flex-grow: 1;
+  padding-right: var(--base-spacing-0);
+}
+
+.header .dismiss {
+  fill: var(--toaster-dismiss-icon);
+  flex-shrink: 0;
+  height: 16px;
+  width: 16px;
+  font-size: 16px;
+  display: inline-block;
+}
+
+.header .dismiss:hover {
+  fill: var(--toaster-dismiss-icon);
+}
+
+.spinner {
+  margin: 15px 0 15px;
+}
+
+.content p {
+  margin: 0;
+  font-size: 14px;
+}
+</style>
+```
+
+### Updated Usage in `useSync.ts`
+
+Update the usage in `useSync.ts` to pass a generic message:
+
+```typescript
+import { eventService, EventType } from '@/services/event.js';
+import { toastService, ToastType } from '@/services/toast.js';
+import { useProductsStore } from '@/stores/products.js';
+import { useAppStore } from '@/stores/app.js';
+import { DialogNames } from '@/typings/dialog.js';
+import { SyncDialogType } from '@/typings/sync.js';
+import { onBeforeUnmount, Ref, ref, watch } from 'vue';
+import {
+  MXSynchronizationProgressSubscription,
+  MXSyncProgressStatus
+} from '@ebitoolmx/gateway-types';
+import { useAuthService } from '@/auth/index.js';
+
+export function useSync(
+  isSyncEnabled: Ref<boolean>,
+  syncStatusSubscription: Ref<MXSynchronizationProgressSubscription | null>
+) {
+  const appStore = useAppStore();
+  const productsStore = useProductsStore();
+  const { userDetails } = useAuthService();
+
+  const syncProcessingId = ref<symbol | null>(null);
+  const taskId = ref<symbol>(Symbol(productsStore.activeProductId));
+
+  watch(
+    () => productsStore.activeProductId,
+    (newId, oldId) => {
+      if (newId !== oldId) {
+        appStore.removeBlockingTask(taskId.value);
+        taskId.value = Symbol(newId);
+      }
+    }
+  );
+
+  watch(
+    [syncStatusSubscription, () => isSyncEnabled.value],
+    ([newStatus], [oldStatus]) => {
+      if (!newStatus || !isSyncEnabled.value) {
+        appStore.removeBlockingTask(taskId.value);
+        return;
+      }
+
+      const newSyncStatus = newStatus.synchronizationProgress?.syncProgressStatus;
+      const oldSyncStatus = oldStatus?.synchronizationProgress?.syncProgressStatus;
+
+      const syncedByUser = newStatus.synchronizationProgress?.syncedBy === userDetails.value?.email;
+      const syncProcessing = newSyncStatus === MXSyncProgressStatus.Synchronizing;
+      const syncInitialising = newSyncStatus === MXSyncProgressStatus.Initializing;
+
+      const syncSuccessful =
+        (newSyncStatus === MXSyncProgressStatus.Successful &&
+          oldSyncStatus === MXSyncProgressStatus.Synchronizing) ||
+        (newSyncStatus === MXSyncProgressStatus.Successful &&
+          oldSyncStatus === MXSyncProgressStatus.Initializing);
+
+      const syncUnsuccessful =
+        newSyncStatus === MXSyncProgressStatus.Unsuccessful &&
+        oldSyncStatus === MXSyncProgressStatus.Synchronizing;
+
+      const syncInitialisationFailed =
+        newSyncStatus === MXSyncProgressStatus.InitializationFailed &&
+        oldSyncStatus === MXSyncProgressStatus.Initializing;
+
+      if (syncProcessing) {
+        appStore.addBlockingTask(taskId.value);
+        toastService.update(syncProcessingId.value!, {
+          message: 'sync.toaster.progress',
+          messageVars: {
+            done: newStatus.synchronizationProgress?.syncedModels.length || 0,
+            total: newStatus.synchronizationProgress?.allModels.length || 0
+          }
+        });
+      } else {
+        appStore.removeBlockingTask(taskId.value);
+        if (syncProcessingId.value) {
+          toastService.dismiss(syncProcessingId.value);
+          syncProcessingId.value = null;
+        }
+      }
+
+      if (syncedByUser) {
+        if (syncInitialising) {
+          eventService.emit(EventType.OpenDialog, {
+            dialogName: DialogNames.Sync,
+            options: {
+              props: {
+                dialogType: SyncDialogType.Initialising,
+                status: newStatus.synchronizationProgress
+              },
+              modal: true
+            }
+          });
+        } else if (syncProcessing)
+          eventService.emit(EventType.OpenDialog, {
+            dialogName: DialogNames.Sync,
+            options: {
+              props: {
+                dialogType: SyncDialogType.Processing,
+                status: newStatus.synchronizationProgress
+              },
+              modal: true
+            }
+          });
+        else if (syncSuccessful)
+          eventService.emit(EventType.OpenDialog, {
+            dialogName: DialogNames.Sync,
+            options: {
+              props: {
+                dialogType: SyncDialogType.Successful,
+                status: newStatus.synchronizationProgress
+              },
+              modal: true
+            }
+          });
+        else if (syncInitialisationFailed) {
+          eventService.emit(EventType.OpenDialog, {
+            dialogName: DialogNames.Sync,
+            options: {
+              props: {
+                dialogType: SyncDialogType.InitialisingFailed,
+                status: newStatus.synchronizationProgress
+              },
+              modal: true
+            }
+          });
+        } else if (syncUnsuccessful)
+          eventService.emit(EventType.OpenDialog, {
+            dialogName: DialogNames.Sync,
+            options: {
+              props: {
+                dialogType: SyncDialogType.Unsuccessful,
+                status: newStatus.synchronizationProgress
+              },
+              modal: true
+            }
+          });
+      } else if ((syncProcessing || syncInitialising) && !syncProcessingId.value) {
+        console.log('new status', newStatus.synchronizationProgress);
+        syncProcessingId.value = toastService.display(ToastType.Spinner, {
+          type: 'default',
+          title: 'sync.toaster.requested',
+          titleVars: {
+            syncedBy: newStatus.synchronizationProgress?.syncedBy
+          },
+          message: 'sync.toaster.progress',
+          messageVars: {
+            done: newStatus.synchronizationProgress?.syncedModels.length || 0,
+            total: newStatus.synchronizationProgress?.allModels.length || 0
+          },
+          dismissable: true
+        });
+      } else if (syncSuccessful) {
+        toastService.display(ToastType.Simple, {
+          type: 'default',
+          title: 'sync.toaster.successful'
+        });
+      } else if (syncUnsuccessful || syncInitialisationFailed) {
+        toastService.display(ToastType.Simple, {
+          type: 'default',
+          title: 'sync.toaster.unsuccessful'
+        });
+      }
+    },
+    { immediate: true }
+  );
+
+  onBeforeUnmount(() => {
+    if (syncProcessingId.value) toastService.dismiss(syncProcessingId.value);
+    appStore.removeBlockingTask(taskId.value);
+  });
+}
+```
+
+### Explanation
+
+1. **New Prop (`message` and `messageVars`):**
+   - Added `message` and `messageVars
+
+-----
 To ensure the `SpinnerToast` component is more generic and only displays synchronization progress when it is related to sync, we can introduce a prop to conditionally render the sync-related content. Here’s how we can update the `SpinnerToast.vue` component:
 
 ### Updated `SpinnerToast.vue`
