@@ -1,3 +1,106 @@
+
+### Addressing Insufficient Commit Messages
+
+You can rebase your commits to clean up the commit messages. Here’s how to do it:
+
+1. **Switch to your feature branch**:
+   ```sh
+   git checkout feature/117-new-feature
+   ```
+
+2. **Rebase interactively to rewrite the commit history**:
+   ```sh
+   git rebase -i HEAD~5
+   ```
+   Replace `5` with the number of commits you want to modify. This will open an editor with a list of your recent commits.
+
+3. **Change `pick` to `reword` for the commits you want to edit**. Save and close the editor to proceed. You will then be prompted to enter new commit messages for the selected commits.
+
+4. **Push the rewritten commit history to your remote repository**:
+   ```sh
+   git push --force-with-lease
+   ```
+
+### Rebase Your Branch with the Main Branch
+
+To rebase your feature branch onto the latest main branch and handle conflicts:
+
+1. **Switch to main branch**:
+   ```sh
+   git checkout main
+   ```
+
+2. **Fetch the latest changes from the remote repository**:
+   ```sh
+   git fetch origin
+   ```
+
+3. **Pull the latest changes into local main branch**:
+   ```sh
+   git pull origin main
+   ```
+
+4. **Switch back to feature branch**:
+   ```sh
+   git checkout feature/117-new-feature
+   ```
+
+5. **Rebase your feature branch onto the main branch**:
+   ```sh
+   git rebase main
+   ```
+
+6. **Resolve any conflicts that arise**. Git will notify you of conflicts. Open the affected files, resolve the conflicts, and then:
+   ```sh
+   git add <resolved_file>
+   ```
+
+7. **Continue the rebase after resolving conflicts**:
+   ```sh
+   git rebase --continue
+   ```
+
+8. **Force push the updated feature branch to the remote repository**:
+   ```sh
+   git push --force-with-lease origin feature/117-new-feature
+   ```
+
+### Final Steps to Complete the Pull Request
+
+1. **Create a pull request** from the `feature/117-new-feature` branch to the `main` branch on your repository platform (e.g., GitHub, GitLab, Bitbucket).
+
+2. **Complete the pull request** after ensuring there are no more conflicts and the feature branch is properly rebased onto the main branch.
+
+### Summary of Commands
+
+Here’s a summary of the commands you'll use:
+
+```sh
+# Rebase to clean up commit messages
+git checkout feature/117-new-feature
+git rebase -i HEAD~5
+# Change 'pick' to 'reword' and save, then rewrite commit messages
+git push --force-with-lease
+
+# Rebase your branch with the latest main branch
+git checkout main
+git fetch origin
+git pull origin main
+git checkout feature/117-new-feature
+git rebase main
+# Resolve conflicts if any
+git add <resolved_file>
+git rebase --continue
+git push --force-with-lease origin feature/117-new-feature
+```
+
+This process will help you clean up your commit history and rebase your feature branch onto the latest main branch, ensuring a smooth and conflict-free pull request.
+
+
+------
+
+
+
 You are correct that it's generally a good practice to ensure your branch is up-to-date with the main branch before creating a pull request. This helps avoid conflicts and ensures your changes are compatible with the latest codebase. Here’s a step-by-step process to update your branch and create a pull request:
 
 1. **Switch to your main branch**:
