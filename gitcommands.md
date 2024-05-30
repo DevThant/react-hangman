@@ -1,3 +1,83 @@
+To squash multiple commits into a single commit during an interactive rebase, you can change the command for the subsequent commits from `pick` to `squash` (or `s` for short). Here's how to do it:
+
+1. After running `git rebase -i HEAD~4`, you will see a list of your commits in Vim.
+
+2. Change the `pick` to `squash` (or `s`) for all commits except the first one. The first commit message will be used as the base commit message, and you can edit it after squashing. For example, your Vim editor should look something like this:
+
+   ```
+   pick 4a.... Apply suggestions from code review
+   squash 66.... Apply suggestions from code review
+   squash 6c.... Apply suggestions from code review
+   squash 311416| Update toaster to show progress.
+   ```
+
+3. Save and close the Vim editor (`:wq`).
+
+4. Git will combine these commits and open a new editor window where you can modify the commit message for the new squashed commit. You can edit the commit message as needed, combining information from all the squashed commits or creating a new, comprehensive commit message.
+
+   Example of the editor with combined commit messages:
+   ```
+   # This is a combination of 4 commits.
+   # The first commit's message is:
+   Apply suggestions from code review
+
+   # This is the 2nd commit message:
+   Apply suggestions from code review
+
+   # This is the 3rd commit message:
+   Apply suggestions from code review
+
+   # This is the 4th commit message:
+   Update toaster to show progress.
+   ```
+
+   Modify this to create a single, comprehensive commit message:
+   ```
+   Update toaster to show progress
+
+   - Applied suggestions from code review
+   - Improved toaster functionality
+   ```
+
+5. Save and close the Vim editor (`:wq`).
+
+6. Push the updated feature branch to the remote repository with force to update the commit history:
+   ```sh
+   git push --force-with-lease origin feature/117-new-feature
+   ```
+
+### Summary of Steps
+
+1. Run interactive rebase:
+   ```sh
+   git rebase -i HEAD~4
+   ```
+
+2. Change the `pick` to `squash` for all commits except the first one in the Vim editor:
+   ```
+   pick 4a.... Apply suggestions from code review
+   squash 66.... Apply suggestions from code review
+   squash 6c.... Apply suggestions from code review
+   squash 311416| Update toaster to show progress.
+   ```
+
+3. Save and close the Vim editor (`:wq`).
+
+4. Edit the commit message in the new editor window to combine the information or create a new message.
+
+5. Save and close the Vim editor (`:wq`).
+
+6. Push the changes forcefully to update the remote branch:
+   ```sh
+   git push --force-with-lease origin feature/117-new-feature
+   ```
+
+This will squash the four commits into a single commit with a new, comprehensive commit message.
+
+
+
+------
+
 
 ### Addressing Insufficient Commit Messages
 
