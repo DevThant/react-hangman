@@ -1,3 +1,54 @@
+To center the text within the dialog, you can adjust the CSS for the text elements to align them centrally. Here’s an updated version of your CSS:
+
+```css
+.unsuccessful {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+
+  .unsuccessful-message {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+
+    a {
+      color: var(--link-color);
+    }
+
+    p {
+      padding-right: var(--base-spacing-1);
+      margin: 0;
+    }
+  }
+
+  .failed-model {
+    display: flex;
+    align-items: center;
+    color: var(--danger);
+    fill: var(--danger);
+
+    p {
+      padding-left: var(--base-spacing-1);
+      text-align: center;
+    }
+  }
+
+  .failed-initialized {
+    display: flex;
+    align-items: center;
+    text-align: center;
+    p {
+      padding-left: var(--base-spacing-1);
+      margin: 0;
+    }
+  }
+}
+```
+
+In this update, the `text-align: center` property is added to the `p` elements and the `.unsuccessful-message` container to ensure the text is centered within the dialog. This should align the text centrally, matching the design more closely.
+
+------
 To ensure the layout of your error message and help desk link match your design, you need to refine the CSS and potentially adjust the HTML structure slightly. The key is to ensure the message text and the link are styled properly and kept on the same line or appropriate lines.
 
 Here's the updated code for `Sync.vue` to match the design closely:
