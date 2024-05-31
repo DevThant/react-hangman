@@ -1,3 +1,105 @@
+<template>
+  <app-dialog-container title-key="sync.modal.title" data-testid="dialog-sync">
+    <template #content>
+      <app-dialog-process-content-layout
+        v-if="isSyncProcessingDialog"
+        :header="t(header)"
+        :description-line1="message ? t(message) : message"
+      >
+        <template #extra-content>
+          <ul class="sync-progress lead dialog-content-message">
+            <li
+              v-for="(model, index) of status?.allModels"
+              :key="index"
+              :class="{
+                syncing: status?.currentModelName === model,
+                synced: status?.syncedModels.includes(model)
+              }"
+            >
+              <app-icon :name="progressIcon(model)" />
+              {{ model }}
+            </li>
+          </ul>
+        </template>
+      </app-dialog-process-content-layout>
+
+      <app-dialog-icon-content-layout
+        v-else
+        :icon="icon"
+        :icon-color="iconColor"
+        :header="t(header)"
+        :message-line1="message ? t(message) : message"
+      >
+        <template #extra-content>
+          <div v-if="isSyncUnsuccessfulDialog || isSyncFailedDialog" class="unsuccessful">
+            <div class="unsuccessful-message">
+              <p v-if="isSyncUnsuccessfulDialog" class="lead dialog-content-message">
+                {{ t('sync.modal.message.unsuccessful') }}
+              </p>
+
+              <div v-if="status?.currentModelName && isSyncUnsuccessfulDialog" class="failed-model">
+                <app-icon name="sync_error" />
+                <p class="lead dialog-content-message">{{ status.currentModelName }}</p>
+              </div>
+
+              <div v-if="status?.currentModelName && isSyncFailedDialog" class="failed-initialized">
+                <p class="lead dialog-content-message">
+                  {{ t('sync.modal.message.modelFailed', { modelName: status.currentModelName }) }}
+                </p>
+              </div>
+
+              <!-- Separate the failed model message and contact info -->
+              <div v-if="isSyncFailedDialog || isSyncUnsuccessfulDialog">
+                <p class="lead dialog-content-message">{{ t('sync.modal.message.modelFailed', { modelName: status.currentModelName }) }}</p>
+                <p class="lead dialog-content-message">{{ t('sync.modal.message.contact') }}</p>
+              </div>
+
+              <a
+                :href="t('common.link')"
+                rel="noopener noreferrer"
+                target="_blank"
+                class="lead dialog-content-message"
+              >
+                {{ t('common.helpSupport') }}
+              </a>
+              <p class="lead dialog-content-message">.</p>
+            </div>
+          </div>
+          <div v-else-if="isSyncSuccessfulDialog">
+            <ul class="sync-progress lead dialog-content-message">
+              <li v-for="(model, index) of status?.syncedModels" :key="index" class="synced">
+                <app-icon name="sync_success" />
+                {{ model }}
+              </li>
+            </ul>
+          </div>
+        </template>
+      </app-dialog-icon-content-layout>
+    </template>
+
+    <template #button-row>
+      <app-button
+        data-testid="reject-sync"
+        :disabled="appStore.hasBlockingTasks"
+        :class="{ primary: !isSyncRequestDialog, secondary: isSyncRequestDialog }"
+        @click="emit('close')"
+        >{{ t('common.close') }}</app-button
+      >
+      <app-button
+        v-if="isSyncRequestDialog"
+        data-testid="accept-sync"
+        class="primary"
+        :disabled="startDisabled"
+        @click="start"
+        >{{ t('common.start') }}</app-button
+      >
+    </template>
+  </app-dialog-container>
+</template>
+
+
+-----
+
 To ensure that the contact message and the help desk link always appear together on the same line, you can adjust the structure of the template and CSS slightly. The goal is to group the contact message and the help desk link within the same parent container.
 
 Here is the updated code for Sync.vue:
