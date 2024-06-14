@@ -1,3 +1,157 @@
+Got it. You want to remove the object from the track while retaining its presence on the GoJS diagram. This involves updating the track's data to exclude the item while keeping the item's node in the diagram.
+
+### Steps to Implement the Removal from Track Property
+
+1. **Locate the Track Update Logic**:
+   - Identify how the tracks are managed and updated within the GoJS diagram.
+
+2. **Modify the Track's Data**:
+   - When an item is removed, update the track's data to exclude the item.
+
+3. **Ensure GoJS Diagram Reflects the Update**:
+   - Ensure the GoJS diagram updates to reflect the removal of the item from the track.
+
+### Step 1: Locate the Track Update Logic
+
+We'll start by understanding how tracks and their items are managed. The relevant logic seems to be in `infrastructure.ts`.
+
+### Step 2: Modify the Track's Data
+
+We need to update the track's data to exclude the item. This will involve modifying the state and ensuring the changes are reflected in the GoJS diagram.
+
+### Step 3: Ensure GoJS Diagram Reflects the Update
+
+Update the GoJS diagram to reflect the changes in the track's data.
+
+#### Update `TrackItemProperty.vue`
+
+First, modify the `deleteValue` method to update the track's data:
+
+```vue
+<script setup lang="ts">
+import { computed, ref } from 'vue';
+import { extractXmiId } from '@ebitoolmx/eclipse-types';
+import { useEditorStore } from '@/stores/editor.js';
+import { useInfrastructureStore } from '@/stores/infrastructure.js';
+import { useProductsStore } from '@/stores/products.js';
+
+const editorStore = useEditorStore();
+const infrastructureStore = useInfrastructureStore();
+const productsStore = useProductsStore();
+
+const props = defineProps<{
+  id: string;
+  value?: PropertyValue[];
+  availableValues?: PropertyValue[];
+  category?: string;
+}>();
+
+const deleteValue = async (propValue: PropertyValue): Promise<void> => {
+  const excludeXmiId = extractXmiId(propValue.object.reference);
+  deleteSelected(excludeXmiId);
+
+  try {
+    await infrastructureStore.removeItemFromTrack({
+      productId: productsStore.activeProductId,
+      itemId: excludeXmiId
+    });
+  } catch (error) {
+    console.error('Failed to remove item from track:', error);
+  }
+
+  setTimeout(() => {
+    showAll.value = true; // Ensure dropdown remains open
+  }, 0);
+};
+
+const deleteSelected = (xmiId: XmiId): void => {
+  emit(
+    'change',
+    currentIds.value.filter(id => id !== xmiId)
+  );
+  editorStore.setHighlighted(
+    new PlainHighlight(editorStore.highlighted.filter((id: string) => id !== xmiId))
+  );
+  const newSelection = editorStore.selected.ids.filter(id =>
+    isMXObjectIdentifier(id) ? id.id : id !== xmiId
+  );
+  editorStore.setSelected(new PlainSelection(newSelection));
+};
+
+// Existing setup code...
+</script>
+```
+
+#### Update `infrastructure.ts`
+
+Add a new method `removeItemFromTrack` to handle the removal of an item from a track:
+
+```typescript
+export const useInfrastructureStore = defineStore('infrastructure', () => {
+  const appStore = useAppStore();
+  const productsStore = useProductsStore();
+  const editorStore = useEditorStore();
+
+  // Existing state and methods...
+
+  const removeItemFromTrack = async ({ productId, itemId }: { productId: string; itemId: XmiId }): Promise<void> => {
+    try {
+      // Find the track that contains the item
+      const trackContainingItem = tracks.value.find(track => track.domain.trackItems.some(item => item.reference === itemId));
+      if (!trackContainingItem) {
+        throw new Error(`Track containing item with id ${itemId} not found`);
+      }
+
+      // Update the track's items to exclude the item
+      const updatedTrackItems = trackContainingItem.domain.trackItems.filter(item => item.reference !== itemId);
+      const updatedTrack = {
+        ...trackContainingItem,
+        domain: {
+          ...trackContainingItem.domain,
+          trackItems: updatedTrackItems
+        }
+      };
+
+      // Update the store's state
+      updateData([updatedTrack]);
+
+      // Call the backend service to persist the change
+      await infrastructureService.updateDomainObject({
+        productId,
+        domainObject: updatedTrack
+      });
+
+      // Ensure GoJS diagram updates to reflect the change
+      gojsDiagram.diagram.model.startTransaction('removeItemFromTrack');
+      const trackNode = gojsDiagram.diagram.findNodeForKey(trackContainingItem.xmiId);
+      if (trackNode) {
+        trackNode.updateRelationshipsFromData();
+      }
+      gojsDiagram.diagram.model.commitTransaction('removeItemFromTrack');
+
+    } catch (err) {
+      loggingService.error('Failed to remove item from track', { cause: err });
+      throw err;
+    }
+  };
+
+  return {
+    // Existing state and methods...
+    removeItemFromTrack,
+  };
+});
+```
+
+### Summary
+
+1. **Update `TrackItemProperty.vue`**: Ensure the `deleteValue` method calls `removeItemFromTrack` from `infrastructure.ts`.
+2. **Add `removeItemFromTrack` Method**: This method updates the track's data to exclude the item and ensures the GoJS diagram reflects this change.
+
+This approach allows for removing an item from a track while keeping it on the GoJS diagram, updating the state, and persisting the changes. Let me know if you need further adjustments or details.
+
+
+----
+
 Based on the code you provided for `editor.ts` and `infrastructure.ts`, I can see that the stores are managing the state and actions related to the editor and infrastructure. We will leverage these stores to handle the deletion of track items from both the UI and the GoJS diagram.
 
 ### Steps to Implement the Deletion
