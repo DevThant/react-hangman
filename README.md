@@ -1,3 +1,103 @@
+Based on the provided code for `InfrastructureEditor.vue`, it seems this component does initialize and manage the GoJS diagram. Now, we can proceed to add functionality to remove track items from the GoJS diagram when they are deleted from `TrackItemProperty.vue`.
+
+### Step-by-Step Implementation
+
+1. **Add a Method to Remove Track Items in `InfrastructureEditor.vue`**:
+   - This method will handle removing the track items from the GoJS diagram.
+
+2. **Expose the Method for Use in Other Components**:
+   - Export the method so it can be imported and used in `TrackItemProperty.vue`.
+
+3. **Update `TrackItemProperty.vue` to Call the Remove Method**:
+   - When an item is deleted from `TrackItemProperty.vue`, it should also call the method to remove the item from the GoJS diagram.
+
+### Step 1: Add Remove Method in `InfrastructureEditor.vue`
+
+Add a method `removeTrackItem` to handle the removal of track items:
+
+```vue
+<template>
+  <div id="infrastructure-editor">
+    <app-mounted-diagram
+      v-if="gojsDiagram.allTemplatesLoaded.value"
+      :target="gojsDiagram.diagramTarget"
+      :diagram="gojsDiagram.diagramTarget"
+      @mounted="onDiagramMounted"
+    />
+    <template v-else>
+      <app-async-app-loading-screen />
+    </template>
+  </div>
+</template>
+
+<script setup lang="ts">
+import { onBeforeUnmount, onMounted, watch } from 'vue';
+import * as go from 'gojs'; // Import gojs
+import {
+  ChangedEvent,
+  DiagramEvent,
+  Part,
+  Link,
+  Set as GoSet,
+  Diagram,
+  Key,
+  GraphObject
+} from 'gojs';
+
+// ... (other imports)
+
+import AppMountedDiagram from '@/components/common/mountedDiagram/MountedDiagram.vue';
+
+// ... (other imports and setup)
+
+const removeTrackItem = (xmiId) => {
+  const node = gojsDiagram.diagram.findNodeForKey(xmiId);
+  if (node) {
+    gojsDiagram.diagram.remove(node);
+  }
+};
+
+// Expose the removeTrackItem method
+export { removeTrackItem };
+
+// ... (rest of the code)
+</script>
+```
+
+### Step 2: Update `TrackItemProperty.vue` to Call Remove Method
+
+Update `TrackItemProperty.vue` to import and use the `removeTrackItem` method:
+
+```vue
+<script setup lang="ts">
+import { computed, ref } from 'vue';
+import { removeTrackItem } from '@/components/InfrastructureEditor.vue'; // Adjust the import path
+
+// Existing setup code...
+
+const deleteValue = (propValue: PropertyValue): void => {
+  const excludeXmiId = extractXmiId(propValue.object.reference);
+  deleteSelected(excludeXmiId);
+  
+  // Remove the item from GoJS diagram
+  removeTrackItem(excludeXmiId);
+  
+  setTimeout(() => {
+    showAll.value = true; // Ensure dropdown remains open
+  }, 0);
+};
+</script>
+```
+
+### Summary
+
+1. **Add `removeTrackItem` Method**: This method finds and removes a node from the GoJS diagram based on the `xmiId`.
+2. **Export the Method**: Export `removeTrackItem` from `InfrastructureEditor.vue`.
+3. **Call the Method in `TrackItemProperty.vue`**: Import and call `removeTrackItem` when an item is deleted in `TrackItemProperty.vue`.
+
+By following these steps, deleting an item from `TrackItemProperty.vue` should also remove it from the GoJS diagram in `InfrastructureEditor.vue`. If you encounter any issues or need further adjustments, please let me know.
+
+-----
 It looks like we missed importing the `nextTick` function correctly. Let me provide a complete working example with proper imports and handling.
 
 ### Updated `SearchProperties.vue`
