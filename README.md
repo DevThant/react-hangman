@@ -1,3 +1,122 @@
+You are correct in your concerns. Typically, methods like `removeTrackItem` would be better placed in a service or a composable that handles GoJS logic, ensuring separation of concerns and better modularity. Given your project's architecture, it seems appropriate to place such logic in a dedicated service or composable.
+
+Let's refactor the approach:
+
+1. **Create a GoJS Service or Composable**:
+   - This service/composable will handle all interactions with the GoJS diagram.
+
+2. **Use the GoJS Service in `InfrastructureEditor.vue`**:
+   - Initialize and manage the GoJS diagram using the service.
+
+3. **Call the GoJS Service from `TrackItemProperty.vue`**:
+   - Use the service to remove items from the GoJS diagram.
+
+### Step 1: Create a GoJS Service or Composable
+
+Let's create a composable `useGojsService.js` to manage GoJS interactions.
+
+#### `useGojsService.js`
+
+```javascript
+import * as go from 'gojs';
+
+let diagram;
+
+export function useGojsService() {
+  const initializeDiagram = (elementId) => {
+    diagram = new go.Diagram(elementId);
+    // Initialize your diagram with nodes, links, templates, etc.
+  };
+
+  const removeTrackItem = (xmiId) => {
+    if (diagram) {
+      const node = diagram.findNodeForKey(xmiId);
+      if (node) {
+        diagram.remove(node);
+      }
+    }
+  };
+
+  return {
+    initializeDiagram,
+    removeTrackItem,
+  };
+}
+```
+
+### Step 2: Use the GoJS Service in `InfrastructureEditor.vue`
+
+Integrate the composable in `InfrastructureEditor.vue`:
+
+#### `InfrastructureEditor.vue`
+
+```vue
+<template>
+  <div id="infrastructure-editor">
+    <app-mounted-diagram
+      v-if="gojsDiagram.allTemplatesLoaded.value"
+      :target="gojsDiagram.diagramTarget"
+      :diagram="gojsDiagram.diagramTarget"
+      @mounted="onDiagramMounted"
+    />
+    <template v-else>
+      <app-async-app-loading-screen />
+    </template>
+  </div>
+</template>
+
+<script setup lang="ts">
+import { onMounted, onBeforeUnmount } from 'vue';
+import { useGojsService } from '@/composables/useGojsService'; // Adjust the import path
+
+const { initializeDiagram } = useGojsService();
+
+const onDiagramMounted = (target: string) => {
+  initializeDiagram(target);
+};
+
+// Rest of your setup logic...
+</script>
+```
+
+### Step 3: Call the GoJS Service from `TrackItemProperty.vue`
+
+Update `TrackItemProperty.vue` to use the `removeTrackItem` method from the composable:
+
+#### `TrackItemProperty.vue`
+
+```vue
+<script setup lang="ts">
+import { computed, ref } from 'vue';
+import { useGojsService } from '@/composables/useGojsService'; // Adjust the import path
+
+const { removeTrackItem } = useGojsService();
+
+// Existing setup code...
+
+const deleteValue = (propValue: PropertyValue): void => {
+  const excludeXmiId = extractXmiId(propValue.object.reference);
+  deleteSelected(excludeXmiId);
+  
+  // Remove the item from GoJS diagram
+  removeTrackItem(excludeXmiId);
+  
+  setTimeout(() => {
+    showAll.value = true; // Ensure dropdown remains open
+  }, 0);
+};
+</script>
+```
+
+### Summary
+
+1. **Create `useGojsService`**: A composable to manage GoJS interactions, including initialization and item removal.
+2. **Integrate in `InfrastructureEditor.vue`**: Use the composable to initialize the GoJS diagram.
+3. **Use in `TrackItemProperty.vue`**: Call the `removeTrackItem` method from the composable when an item is deleted.
+
+This approach ensures a clean separation of concerns and modularity, making the codebase easier to maintain and extend. If you encounter any issues or need further adjustments, please let me know.
+
+-----
 Based on the provided code for `InfrastructureEditor.vue`, it seems this component does initialize and manage the GoJS diagram. Now, we can proceed to add functionality to remove track items from the GoJS diagram when they are deleted from `TrackItemProperty.vue`.
 
 ### Step-by-Step Implementation
