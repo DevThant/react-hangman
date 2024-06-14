@@ -1,3 +1,155 @@
+
+Understood, let's work within the existing structure of the project. We'll start by tracing how the highlight and deselect functionality is currently implemented. This will help us understand how to extend it to fully remove items from the GoJS diagram.
+
+### Step-by-Step Process
+
+1. **Trace Highlight/Deselect Logic**:
+   - Identify where and how the highlight/deselect functionality is handled in both the GoJS diagram and the side panel.
+
+2. **Locate the Existing Methods**:
+   - Find existing methods or services that handle the removal of items from the diagram and side panel.
+
+3. **Integrate Removal Functionality**:
+   - Use the identified methods to remove items from the GoJS diagram when they are deleted from the side panel.
+
+### Step 1: Trace Highlight/Deselect Logic
+
+Based on your initial code, it seems the deselection is handled in `TrackItemProperty.vue`. We need to find where this logic interfaces with GoJS.
+
+#### `TrackItemProperty.vue`
+
+Let's examine the `deleteValue` function and trace its execution path:
+
+```vue
+const deleteValue = (propValue: PropertyValue): void => {
+  const excludeXmiId = extractXmiId(propValue.object.reference);
+  deleteSelected(excludeXmiId);
+  // Other logic...
+};
+```
+
+The `deleteSelected` function is a good starting point. Let's find its definition and understand how it interacts with GoJS.
+
+### Step 2: Locate the Existing Methods
+
+Find the `deleteSelected` method and see how it handles deselecting items:
+
+#### `TrackItemProperty.vue`
+
+```vue
+const deleteSelected = (xmiId: XmiId): void => {
+  emit(
+    'change',
+    currentIds.value.filter(id => id !== xmiId)
+  );
+  editorStore.setHighlighted(
+    new PlainHighlight(editorStore.highlighted.filter((id: string) => id !== xmiId))
+  );
+  const newSelection = editorStore.selected.ids.filter(id =>
+    isMXObjectIdentifier(id) ? id.id : id !== xmiId
+  );
+  editorStore.setSelected(new PlainSelection(newSelection));
+};
+```
+
+This method interacts with the `editorStore`. We'll need to look at the `editorStore` to understand how it manages selections and highlights.
+
+#### `editorStore` (Vuex Store or Pinia Store)
+
+Look at the methods `setHighlighted` and `setSelected` to see how they work:
+
+```js
+// Assume this is part of your editorStore
+
+export const useEditorStore = defineStore('editor', {
+  state: () => ({
+    highlighted: new PlainHighlight([]),
+    selected: new PlainSelection([]),
+    // other states...
+  }),
+  actions: {
+    setHighlighted(highlight) {
+      this.highlighted = highlight;
+      // Possibly other logic...
+    },
+    setSelected(selection) {
+      this.selected = selection;
+      // Possibly other logic...
+    },
+  },
+});
+```
+
+### Step 3: Integrate Removal Functionality
+
+We need to ensure that when `deleteValue` is called, it not only deselects the item but also removes it from the GoJS diagram.
+
+#### `TrackItemProperty.vue`
+
+Update the `deleteValue` method to include the removal of the GoJS node:
+
+```vue
+<script setup lang="ts">
+import { computed, ref } from 'vue';
+import { useEditorStore } from '@/stores/editor.js'; // Adjust the import path
+import { useInfrastructureStore } from '@/stores/infrastructure.js'; // Adjust the import path
+
+const editorStore = useEditorStore();
+const infrastructureStore = useInfrastructureStore();
+
+// Existing setup code...
+
+const deleteValue = (propValue: PropertyValue): void => {
+  const excludeXmiId = extractXmiId(propValue.object.reference);
+  deleteSelected(excludeXmiId);
+  
+  // Remove the item from the infrastructure store (and thus from GoJS)
+  infrastructureStore.deleteDomainObject({
+    productId: productsStore.activeProductId,
+    xmiIds: [excludeXmiId],
+  });
+  
+  setTimeout(() => {
+    showAll.value = true; // Ensure dropdown remains open
+  }, 0);
+};
+</script>
+```
+
+Ensure `deleteDomainObject` in `infrastructureStore` also handles removing the item from the GoJS diagram:
+
+#### `infrastructureStore.js`
+
+```js
+export const useInfrastructureStore = defineStore('infrastructure', {
+  state: () => ({
+    // state properties...
+  }),
+  actions: {
+    deleteDomainObject({ productId, xmiIds }) {
+      // Existing logic to delete domain object...
+
+      // Additional logic to remove from GoJS diagram
+      xmiIds.forEach((xmiId) => {
+        const node = gojsDiagram.diagram.findNodeForKey(xmiId);
+        if (node) {
+          gojsDiagram.diagram.remove(node);
+        }
+      });
+    },
+    // other actions...
+  },
+});
+```
+
+### Summary
+
+1. **Trace the Logic**: Identify the `deleteSelected` method and trace how it interacts with GoJS.
+2. **Locate Methods**: Understand how `editorStore` and `infrastructureStore` manage selections and highlights.
+3. **Integrate Removal**: Update `deleteValue` to call the appropriate method in `infrastructureStore` that ensures the item is removed from GoJS.
+
+By following these steps, you should be able to fully remove items from both the GoJS diagram and the side panel when the user clicks the "x" button. Let me know if you need further adjustments or details.
+------
 You are correct in your concerns. Typically, methods like `removeTrackItem` would be better placed in a service or a composable that handles GoJS logic, ensuring separation of concerns and better modularity. Given your project's architecture, it seems appropriate to place such logic in a dedicated service or composable.
 
 Let's refactor the approach:
