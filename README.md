@@ -1,3 +1,245 @@
+
+To improve the behavior of the dropdown by maintaining the current scroll position when an item is removed, you can store the scroll position before the item is removed and then restore it after the dropdown is updated. 
+
+Here's how you can achieve that:
+
+1. **Add a ref for the dropdown and a data property for the scroll position in `SearchProperties.vue`**:
+
+```vue
+<template>
+  <div class="search-property-wrapper">
+    <app-input
+      id="search-input"
+      v-model="searchString"
+      raised
+      :alt-style="altStyle"
+      type="text"
+      :placeholder="inputPlaceholder"
+      autocomplete="off"
+      icon-label="search"
+      class="search-input"
+      @click="opened = true"
+      @blur="closeDropdown"
+    >
+      <app-icon-button
+        v-if="searchString"
+        name="times"
+        class="clickable"
+        stop-propagation
+        @click="clearSearch"
+      />
+    </app-input>
+    <div
+      v-if="opened"
+      ref="searchDropdown"
+      tabindex="0"
+      class="results"
+      @blur="closeDropdown"
+      @mousedown="focusDropdown"
+    >
+      <ol class="scrollable" ref="scrollableList">
+        <template
+          v-if="
+            matchedResultsFilter(searchString, filteredAvailableValues).length ||
+            matchedResultsFilter(searchString, selectedValues).length
+          "
+        >
+          <template
+            v-if="matchedResultsFilter(searchString, filteredAvailableValues).length && enabled"
+          >
+            <li class="small">{{ availableLabel }}:</li>
+            <li
+              v-for="value of matchedResultsFilter(searchString, filteredAvailableValues)"
+              :key="parseSearchValue(value)"
+              :title="parseSearchValue(value)"
+              class="selectable"
+              @click="select(value)"
+            >
+              <slot name="availableValue" v-bind="value">{{ parseSearchValue(value) }}</slot>
+            </li>
+          </template>
+          <template v-if="matchedResultsFilter(searchString, selectedValues).length">
+            <li class="small">{{ selectedLabel }}:</li>
+            <li
+              v-for="value of matchedResultsFilter(searchString, selectedValues)"
+              :key="parseSearchValue(value)"
+              class="selectable"
+              :title="parseSearchValue(value)"
+            >
+              <slot name="selectedValue" v-bind="value">
+                <app-deletable-indicator
+                  :value="value"
+                  :is-editing="true"
+                  @delete="handleDelete(value)" <!-- Bind the handleDelete method -->
+                >{{ parseSearchValue(value) }}</app-deletable-indicator>
+              </slot>
+            </li>
+          </template>
+        </template>
+        <li v-else-if="!noMatchFound">{{ t('properties.noAvailableValues') }}</li>
+        <li v-if="noMatchFound">{{ t('properties.noMatch') }}</li>
+      </ol>
+    </div>
+  </div>
+</template>
+
+<script setup lang="ts" generic="T extends MinimalSearchValue">
+import { computed, ref, VueElement, watch } from 'vue';
+import AppInput from '@/components/common/formElements/input/Input.vue';
+import AppIconButton from '@/components/common/icon/IconButton.vue';
+import { useI18n } from 'vue-i18n';
+import {
+  matchedResultsFilter,
+  MinimalSearchValue,
+  parseSearchValue
+} from '@/components/common/search/helpers/match.js';
+
+defineOptions({ name: 'SearchProperties' });
+
+const props = withDefaults(
+  defineProps<{
+    modelValue?: string;
+    altStyle?: boolean;
+    selectedValues?: T[];
+    availableValues?: T[];
+    enabled?: boolean;
+    inputPlaceholder?: string;
+    labelKey?: string;
+  }>(),
+  {
+    modelValue: '',
+    selectedValues: () => [],
+    availableValues: () => [],
+    inputPlaceholder: 'Search list',
+    labelKey: ''
+  }
+);
+const emit = defineEmits<{
+  'update:modelValue': [value: string];
+  blur: [value: string];
+  selected: [value: T];
+  clear: [];
+  delete: [value: T];
+}>();
+
+const { t } = useI18n();
+const searchString = ref(props.modelValue);
+const searchDropdown = ref<HTMLElement | InstanceType<typeof VueElement>>();
+const scrollableList = ref<HTMLElement | null>(null); // Add ref for scrollable list
+const scrollPosition = ref(0); // Add ref for scroll position
+const opened = ref(false);
+const filteredAvailableValues = computed<T[]>(() => {
+  const valueMap = props.selectedValues.map(val => parseSearchValue(val));
+  return props.availableValues.filter(value => !valueMap.includes(parseSearchValue(value)));
+});
+const noMatchFound = computed<boolean>(
+  () =>
+    !!searchString.value &&
+    !matchedResultsFilter(searchString.value, props.selectedValues).length &&
+    (!props.enabled || !matchedResultsFilter(searchString.value, props.availableValues).length)
+);
+const parsedLabelKey = computed<string>(() => (props.labelKey ? ` ${t(props.labelKey)}` : ''));
+const availableLabel = computed<string>(() => t('properties.available') + parsedLabelKey.value);
+const selectedLabel = computed<string>(() => t('properties.selected') + parsedLabelKey.value);
+
+const clearSearch = () => {
+  searchString.value = '';
+  emit('clear');
+};
+
+const select = (value: T) => {
+  searchString.value = parseSearchValue(value);
+  emit('selected', value);
+  opened.value = false;
+};
+
+const focusDropdown = () => {
+  if (searchDropdown?.value?.focus) {
+    searchDropdown.value.focus();
+  } else if ((searchDropdown?.value as any)?.$el?.focus) {
+    (searchDropdown.value as any).$el.focus();
+  }
+  opened.value = true;
+};
+
+const closeDropdown = () => {
+  if (document.activeElement === searchDropdown.value) return;
+  opened.value = false;
+  emit('blur', searchString.value);
+};
+
+const handleDelete = (value: T) => {
+  if (scrollableList.value) {
+    scrollPosition.value = scrollableList.value.scrollTop; // Store the scroll position
+  }
+  emit('delete', value);
+  setTimeout(() => {
+    if (scrollableList.value) {
+      scrollableList.value.scrollTop = scrollPosition.value; // Restore the scroll position
+    }
+    opened.value = true; // Ensure the dropdown remains open after deletion
+  }, 0);
+};
+
+watch(searchString, value => emit('update:modelValue', value));
+</script>
+
+<style scoped>
+/* Existing styles */
+.search-property-wrapper {
+  position: relative;
+}
+.results {
+  width: 100%;
+  position: absolute;
+  z-index: 9;
+  box-shadow: var(--search-results-shadow);
+  border: 1px solid var(--search-results-border-color);
+}
+li {
+  background: var(--dropdown-color);
+  height: 2.5em;
+  padding: 0 var(--base-spacing-2);
+  display: flex;
+  flex-direction: row;
+  align-content: center;
+  align-items: center;
+  user-select: none;
+  white-space: nowrap;
+}
+.scrollable {
+  overflow: hidden;
+  overflow-y: auto;
+  max-height: 30vh;
+}
+.selectable {
+  cursor: pointer;
+}
+.selectable:hover {
+  background: var(--dropdown-hover-color);
+}
+.search-input {
+  height: 40px;
+}
+.search-input:deep(.field) {
+  height: 100%;
+}
+</style>
+```
+
+In this solution, we:
+
+- Added a `ref` for the scrollable list (`scrollableList`).
+- Added a `ref` to store the current scroll position (`scrollPosition`).
+- Modified the `handleDelete` method to store the scroll position before deleting an item and then restore the scroll position after the deletion.
+
+This will ensure that the dropdown maintains its scroll position when an item is removed, allowing users to remove multiple items from the same spot without needing to scroll back to their previous position.
+
+
+
+
+--------
+
 Let's correct this by ensuring that the `handleDelete` method in `SearchProperties.vue` is correctly bound to the delete event, and we'll make sure the dropdown stays open.
 
 ### Step-by-Step Solution
