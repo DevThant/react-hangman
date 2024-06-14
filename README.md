@@ -1,3 +1,103 @@
+To properly investigate how the `TrackItemProperty` values are being used and deselected, let's start by tracing the key parts of the code and understanding the flow of data and interactions. 
+
+### Step-by-Step Analysis
+
+1. **TrackItemProperty.vue**: We need to understand how values are passed to this component and how the deselection is handled.
+
+2. **Highlight and Selection Handling**: Check how the highlighting and selection mechanism works in this component and across the application.
+
+3. **Infrastructure Store Interaction**: Investigate how the store interacts with these components to manage state and update the GoJS diagram.
+
+### TrackItemProperty.vue Analysis
+
+1. **Values Initialization**: Identify how values are initialized and managed in the `TrackItemProperty.vue`.
+
+2. **Deselect Functionality**: Understand how the existing deselect functionality works, including the methods and events involved.
+
+Let's begin by focusing on the relevant parts in `TrackItemProperty.vue`. Specifically, we should review the methods and events tied to selection and deselection. This might lead us to additional files or parts of the codebase that handle the actual state management and diagram updates.
+
+#### TrackItemProperty.vue
+
+```vue
+<template>
+  <!-- Existing template structure -->
+</template>
+
+<script setup lang="ts">
+import { computed, ref } from 'vue';
+import { extractXmiId } from '@ebitoolmx/eclipse-types';
+import { useEditorStore } from '@/stores/editor.js';
+import { useInfrastructureStore } from '@/stores/infrastructure.js';
+import { useProductsStore } from '@/stores/products.js';
+
+const editorStore = useEditorStore();
+const infrastructureStore = useInfrastructureStore();
+const productsStore = useProductsStore();
+
+const props = defineProps<{
+  id: string;
+  value?: PropertyValue[];
+  availableValues?: PropertyValue[];
+  category?: string;
+}>();
+
+const deleteValue = async (propValue: PropertyValue): Promise<void> => {
+  const excludeXmiId = extractXmiId(propValue.object.reference);
+  deleteSelected(excludeXmiId);
+
+  try {
+    await infrastructureStore.removeItemFromTrack({
+      productId: productsStore.activeProductId,
+      itemId: excludeXmiId
+    });
+  } catch (error) {
+    console.error('Failed to remove item from track:', error);
+  }
+
+  setTimeout(() => {
+    showAll.value = true; // Ensure dropdown remains open
+  }, 0);
+};
+
+const deleteSelected = (xmiId: XmiId): void => {
+  emit(
+    'change',
+    currentIds.value.filter(id => id !== xmiId)
+  );
+  editorStore.setHighlighted(
+    new PlainHighlight(editorStore.highlighted.filter((id: string) => id !== xmiId))
+  );
+  const newSelection = editorStore.selected.ids.filter(id =>
+    isMXObjectIdentifier(id) ? id.id : id !== xmiId
+  );
+  editorStore.setSelected(new PlainSelection(newSelection));
+};
+
+// Existing setup code...
+</script>
+```
+
+### Next Steps
+
+To better understand how these values are managed and deselected, please provide the following:
+
+1. **Methods or Event Handlers in `TrackItemProperty.vue`**: Check if there are any methods or event handlers related to selection/deselection or value management in `TrackItemProperty.vue`.
+
+2. **Selection and Highlighting Methods**: Any methods or services used for managing selections and highlights.
+
+3. **State Management and Store Interaction**: Look for interactions with the store (`editorStore`, `infrastructureStore`) for state management.
+
+### Files to Investigate
+
+1. **Any Store Files Handling Track Items**: We need to look for files in the store (`editorStore`, `infrastructureStore`) where track items or their selections are managed.
+
+2. **GoJS Integration Points**: Any files where GoJS diagrams are initialized or updated, especially those interacting with track items.
+
+3. **SearchProperties.vue or Related Components**: Since `TrackItemProperty.vue` might interact with `SearchProperties.vue`, understanding this interaction might be crucial.
+
+Please provide these details or any files you think are involved in the selection and deselection process. This will help us get a complete understanding of the flow and how to properly implement the removal of items from the track while keeping the existing functionality intact.
+
+-----
 You are correct; there isn't a method named `updateDomainObject` in the provided `infrastructure.ts` code. Instead, we need to update the track's data directly using the existing `updateData` method after modifying the track items. We'll also ensure that the changes are persisted by interacting with the backend service if necessary.
 
 Here's the corrected approach to implement the removal of an item from a track:
