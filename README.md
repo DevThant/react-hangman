@@ -1,3 +1,250 @@
+
+Let's address the issues step by step:
+
+### 1. TypeScript Error
+The TypeScript error indicates that `MinimalSearchValue` is not assignable to the expected type for the `value` property in `AppDeletableIndicator`. You need to ensure the types match. 
+
+First, let's check if `MinimalSearchValue` can be cast to the expected type, or if you need to transform it.
+
+### 2. Scroll Position Issue
+The scroll position issue might be due to the fact that the dropdown is getting rerendered and losing the scroll position. We need to ensure the position is correctly captured and restored.
+
+Here’s the updated solution:
+
+### Updated `SearchProperties.vue`
+Ensure the `value` passed to `AppDeletableIndicator` matches the expected type and the scroll position is maintained.
+
+```vue
+<template>
+  <div class="search-property-wrapper">
+    <app-input
+      id="search-input"
+      v-model="searchString"
+      raised
+      :alt-style="altStyle"
+      type="text"
+      :placeholder="inputPlaceholder"
+      autocomplete="off"
+      icon-label="search"
+      class="search-input"
+      @click="opened = true"
+      @blur="closeDropdown"
+    >
+      <app-icon-button
+        v-if="searchString"
+        name="times"
+        class="clickable"
+        stop-propagation
+        @click="clearSearch"
+      />
+    </app-input>
+    <div
+      v-if="opened"
+      ref="searchDropdown"
+      tabindex="0"
+      class="results"
+      @blur="closeDropdown"
+      @mousedown="focusDropdown"
+    >
+      <ol class="scrollable" ref="scrollableList">
+        <template
+          v-if="
+            matchedResultsFilter(searchString, filteredAvailableValues).length ||
+            matchedResultsFilter(searchString, selectedValues).length
+          "
+        >
+          <template
+            v-if="matchedResultsFilter(searchString, filteredAvailableValues).length && enabled"
+          >
+            <li class="small">{{ availableLabel }}:</li>
+            <li
+              v-for="value of matchedResultsFilter(searchString, filteredAvailableValues)"
+              :key="parseSearchValue(value)"
+              :title="parseSearchValue(value)"
+              class="selectable"
+              @click="select(value)"
+            >
+              <slot name="availableValue" v-bind="value">{{ parseSearchValue(value) }}</slot>
+            </li>
+          </template>
+          <template v-if="matchedResultsFilter(searchString, selectedValues).length">
+            <li class="small">{{ selectedLabel }}:</li>
+            <li
+              v-for="value of matchedResultsFilter(searchString, selectedValues)"
+              :key="parseSearchValue(value)"
+              class="selectable"
+              :title="parseSearchValue(value)"
+            >
+              <slot name="selectedValue" v-bind="value">
+                <app-deletable-indicator
+                  :value="value as any"  <!-- Cast to any or appropriate type -->
+                  :is-editing="true"
+                  @delete="handleDelete(value)"
+                >{{ parseSearchValue(value) }}</app-deletable-indicator>
+              </slot>
+            </li>
+          </template>
+        </template>
+        <li v-else-if="!noMatchFound">{{ t('properties.noAvailableValues') }}</li>
+        <li v-if="noMatchFound">{{ t('properties.noMatch') }}</li>
+      </ol>
+    </div>
+  </div>
+</template>
+
+<script setup lang="ts" generic="T extends MinimalSearchValue">
+import { computed, ref, watch, nextTick } from 'vue';
+import AppInput from '@/components/common/formElements/input/Input.vue';
+import AppIconButton from '@/components/common/icon/IconButton.vue';
+import AppDeletableIndicator from '@/components/common/indicator/DeletableIndicator.vue';
+import { useI18n } from 'vue-i18n';
+import {
+  matchedResultsFilter,
+  MinimalSearchValue,
+  parseSearchValue
+} from '@/components/common/search/helpers/match.js';
+
+defineOptions({ name: 'SearchProperties' });
+
+const props = withDefaults(
+  defineProps<{
+    modelValue?: string;
+    altStyle?: boolean;
+    selectedValues?: T[];
+    availableValues?: T[];
+    enabled?: boolean;
+    inputPlaceholder?: string;
+    labelKey?: string;
+  }>(),
+  {
+    modelValue: '',
+    selectedValues: () => [],
+    availableValues: () => [],
+    inputPlaceholder: 'Search list',
+    labelKey: ''
+  }
+);
+const emit = defineEmits<{
+  'update:modelValue': [value: string];
+  blur: [value: string];
+  selected: [value: T];
+  clear: [];
+  delete: [value: T];
+}>();
+
+const { t } = useI18n();
+const searchString = ref(props.modelValue);
+const searchDropdown = ref<HTMLElement | null>(null);
+const scrollableList = ref<HTMLElement | null>(null);
+const scrollPosition = ref(0);
+const opened = ref(false);
+const filteredAvailableValues = computed<T[]>(() => {
+  const valueMap = props.selectedValues.map(val => parseSearchValue(val));
+  return props.availableValues.filter(value => !valueMap.includes(parseSearchValue(value)));
+});
+const noMatchFound = computed<boolean>(
+  () =>
+    !!searchString.value &&
+    !matchedResultsFilter(searchString.value, props.selectedValues).length &&
+    (!props.enabled || !matchedResultsFilter(searchString.value, props.availableValues).length)
+);
+const parsedLabelKey = computed<string>(() => (props.labelKey ? ` ${t(props.labelKey)}` : ''));
+const availableLabel = computed<string>(() => t('properties.available') + parsedLabelKey.value);
+const selectedLabel = computed<string>(() => t('properties.selected') + parsedLabelKey.value);
+
+const clearSearch = () => {
+  searchString.value = '';
+  emit('clear');
+};
+
+const select = (value: T) => {
+  searchString.value = parseSearchValue(value);
+  emit('selected', value);
+  opened.value = false;
+};
+
+const focusDropdown = () => {
+  if (searchDropdown.value) {
+    searchDropdown.value.focus();
+  }
+  opened.value = true;
+};
+
+const closeDropdown = () => {
+  if (document.activeElement === searchDropdown.value) return;
+  opened.value = false;
+  emit('blur', searchString.value);
+};
+
+const handleDelete = (value: T) => {
+  if (scrollableList.value) {
+    scrollPosition.value = scrollableList.value.scrollTop; // Store the scroll position
+  }
+  emit('delete', value);
+  nextTick(() => {
+    if (scrollableList.value) {
+      scrollableList.value.scrollTop = scrollPosition.value; // Restore the scroll position
+    }
+    opened.value = true; // Ensure the dropdown remains open after deletion
+  });
+};
+
+watch(searchString, value => emit('update:modelValue', value));
+</script>
+
+<style scoped>
+.search-property-wrapper {
+  position: relative;
+}
+.results {
+  width: 100%;
+  position: absolute;
+  z-index: 9;
+  box-shadow: var(--search-results-shadow);
+  border: 1px solid var(--search-results-border-color);
+}
+li {
+  background: var(--dropdown-color);
+  height: 2.5em;
+  padding: 0 var(--base-spacing-2);
+  display: flex;
+  flex-direction: row;
+  align-content: center;
+  align-items: center;
+  user-select: none;
+  white-space: nowrap;
+}
+.scrollable {
+  overflow: hidden;
+  overflow-y: auto;
+  max-height: 30vh;
+}
+.selectable {
+  cursor: pointer;
+}
+.selectable:hover {
+  background: var(--dropdown-hover-color);
+}
+.search-input {
+  height: 40px;
+}
+.search-input:deep(.field) {
+  height: 100%;
+}
+</style>
+```
+
+### Key Changes:
+1. **Type Casting**: Cast `value` to `any` to resolve the TypeScript error. Ideally, you should ensure `value` matches the expected type, but casting to `any` can be a temporary workaround.
+2. **Scroll Position Handling**: 
+   - Store the scroll position before deletion.
+   - Restore the scroll position using `nextTick` to ensure the DOM has updated.
+
+This should address both the TypeScript error and the scroll position issue. Let me know if this resolves the problem or if further adjustments are needed.
+
+
+------
+
 Let's address the issues step by step:
 
 ### 1. TypeScript Error
