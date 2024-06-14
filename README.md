@@ -1,4 +1,142 @@
+Based on the code you provided for `editor.ts` and `infrastructure.ts`, I can see that the stores are managing the state and actions related to the editor and infrastructure. We will leverage these stores to handle the deletion of track items from both the UI and the GoJS diagram.
 
+### Steps to Implement the Deletion
+
+1. **Identify the Methods to Use**:
+   - We'll use the `deleteDomainObject` method from `infrastructure.ts` to remove items from the GoJS diagram.
+   - Ensure that `deleteValue` in `TrackItemProperty.vue` calls this method.
+
+2. **Modify `TrackItemProperty.vue`**:
+   - Update the `deleteValue` method to also call the `deleteDomainObject` method from `infrastructure.ts`.
+
+3. **Ensure Proper Removal from GoJS Diagram**:
+   - Verify that the `deleteDomainObject` method in `infrastructure.ts` handles the removal from GoJS correctly.
+
+### Step 1: Identify the Methods to Use
+
+The `deleteDomainObject` method in `infrastructure.ts` seems to handle the deletion logic. It calls an API to delete the domain object and also interacts with the `editorStore` to update the state.
+
+### Step 2: Modify `TrackItemProperty.vue`
+
+Update the `deleteValue` method in `TrackItemProperty.vue` to call `deleteDomainObject`.
+
+#### `TrackItemProperty.vue`
+
+```vue
+<script setup lang="ts">
+import { computed, ref } from 'vue';
+import { extractXmiId } from '@ebitoolmx/eclipse-types';
+import { useEditorStore } from '@/stores/editor.js';
+import { useInfrastructureStore } from '@/stores/infrastructure.js';
+import { useProductsStore } from '@/stores/products.js';
+
+const editorStore = useEditorStore();
+const infrastructureStore = useInfrastructureStore();
+const productsStore = useProductsStore();
+
+const props = defineProps<{
+  id: string;
+  value?: PropertyValue[];
+  availableValues?: PropertyValue[];
+  category?: string;
+}>();
+
+const deleteValue = async (propValue: PropertyValue): Promise<void> => {
+  const excludeXmiId = extractXmiId(propValue.object.reference);
+  deleteSelected(excludeXmiId);
+
+  try {
+    await infrastructureStore.deleteDomainObject({
+      productId: productsStore.activeProductId,
+      xmiIds: [excludeXmiId]
+    });
+  } catch (error) {
+    console.error('Failed to delete domain object:', error);
+  }
+
+  setTimeout(() => {
+    showAll.value = true; // Ensure dropdown remains open
+  }, 0);
+};
+
+const deleteSelected = (xmiId: XmiId): void => {
+  emit(
+    'change',
+    currentIds.value.filter(id => id !== xmiId)
+  );
+  editorStore.setHighlighted(
+    new PlainHighlight(editorStore.highlighted.filter((id: string) => id !== xmiId))
+  );
+  const newSelection = editorStore.selected.ids.filter(id =>
+    isMXObjectIdentifier(id) ? id.id : id !== xmiId
+  );
+  editorStore.setSelected(new PlainSelection(newSelection));
+};
+
+// Existing setup code...
+</script>
+```
+
+### Step 3: Ensure Proper Removal from GoJS Diagram
+
+The `deleteDomainObject` method in `infrastructure.ts` is responsible for updating the state and making the API call to delete the domain object. Ensure this method is correctly interacting with the GoJS diagram.
+
+#### `infrastructure.ts`
+
+```typescript
+export const useInfrastructureStore = defineStore('infrastructure', () => {
+  // Existing state and methods...
+
+  const deleteDomainObject = async ({
+    productId,
+    xmiIds
+  }: DeleteDomainObjectPayload): Promise<void> => {
+    try {
+      editorStore.domainObjectsDeleted(xmiIds);
+
+      // Assuming infrastructureService.deleteDomainObject handles the backend deletion
+      await infrastructureService.deleteDomainObject({
+        productId,
+        xmiIds
+      });
+
+      // Remove nodes from the GoJS diagram
+      xmiIds.forEach(xmiId => {
+        const node = gojsDiagram.diagram.findNodeForKey(xmiId);
+        if (node) {
+          gojsDiagram.diagram.remove(node);
+        }
+      });
+
+      // Update the state to reflect the deletion
+      const domainObjects = xmiIds.map(xmiId => getDomainObject.value(xmiId)).filter(isNotEmpty);
+      deleteData(domainObjects);
+    } catch (err) {
+      loggingService.error('Failed to delete domain object', { cause: err });
+      toastService.displayError({
+        title: 'error.requestErrorTitle',
+        text: 'error.failedToDeleteDomainObject'
+      });
+
+      throw err;
+    }
+  };
+
+  return {
+    // Existing state and methods...
+    deleteDomainObject,
+  };
+});
+```
+
+### Summary
+
+1. **Update `TrackItemProperty.vue`**: Ensure the `deleteValue` method calls `deleteDomainObject` from `infrastructure.ts`.
+2. **Ensure `infrastructure.ts` Handles GoJS Removal**: Verify that `deleteDomainObject` removes nodes from the GoJS diagram and updates the state accordingly.
+
+This approach ensures that when an item is deleted from the side panel, it is also removed from the GoJS diagram, aligning with your project's existing structure and methods.
+
+----
 Understood, let's work within the existing structure of the project. We'll start by tracing how the highlight and deselect functionality is currently implemented. This will help us understand how to extend it to fully remove items from the GoJS diagram.
 
 ### Step-by-Step Process
