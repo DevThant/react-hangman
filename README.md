@@ -1,3767 +1,539 @@
-I understand, let's address the extra space issue directly in the `Sync.vue` component and the associated styles. I'll make sure to adjust the styles to remove the unnecessary space between the contact message and the help desk link.
+Let's correct this by ensuring that the `handleDelete` method in `SearchProperties.vue` is correctly bound to the delete event, and we'll make sure the dropdown stays open.
 
-### Updated `Sync.vue`
+### Step-by-Step Solution
+
+1. **Update `SearchProperties.vue` to correctly handle the delete event:**
 
 ```vue
 <template>
-  <app-dialog-container title-key="sync.modal.title" data-testid="dialog-sync">
-    <template #content>
-      <app-dialog-process-content-layout
-        v-if="isSyncProcessingDialog"
-        :header="t(header)"
-        :description-line1="message ? t(message) : message"
-      >
-        <template #extra-content>
-          <ul class="sync-progress lead dialog-content-message">
+  <div class="search-property-wrapper">
+    <app-input
+      id="search-input"
+      v-model="searchString"
+      raised
+      :alt-style="altStyle"
+      type="text"
+      :placeholder="inputPlaceholder"
+      autocomplete="off"
+      icon-label="search"
+      class="search-input"
+      @click="opened = true"
+      @blur="closeDropdown"
+    >
+      <app-icon-button
+        v-if="searchString"
+        name="times"
+        class="clickable"
+        stop-propagation
+        @click="clearSearch"
+      />
+    </app-input>
+    <div
+      v-if="opened"
+      ref="searchDropdown"
+      tabindex="0"
+      class="results"
+      @blur="closeDropdown"
+      @mousedown="focusDropdown"
+    >
+      <ol class="scrollable">
+        <template
+          v-if="
+            matchedResultsFilter(searchString, filteredAvailableValues).length ||
+            matchedResultsFilter(searchString, selectedValues).length
+          "
+        >
+          <template
+            v-if="matchedResultsFilter(searchString, filteredAvailableValues).length && enabled"
+          >
+            <li class="small">{{ availableLabel }}:</li>
             <li
-              v-for="(model, index) of status?.allModels"
-              :key="index"
-              :class="{
-                syncing: status?.currentModelName === model,
-                synced: status?.syncedModels.includes(model)
-              }"
+              v-for="value of matchedResultsFilter(searchString, filteredAvailableValues)"
+              :key="parseSearchValue(value)"
+              :title="parseSearchValue(value)"
+              class="selectable"
+              @click="select(value)"
             >
-              <app-icon :name="progressIcon(model)" />
-              {{ model }}
+              <slot name="availableValue" v-bind="value">{{ parseSearchValue(value) }}</slot>
             </li>
-          </ul>
+          </template>
+          <template v-if="matchedResultsFilter(searchString, selectedValues).length">
+            <li class="small">{{ selectedLabel }}:</li>
+            <li
+              v-for="value of matchedResultsFilter(searchString, selectedValues)"
+              :key="parseSearchValue(value)"
+              class="selectable"
+              :title="parseSearchValue(value)"
+            >
+              <slot name="selectedValue" v-bind="value">
+                <app-deletable-indicator
+                  :value="value"
+                  :is-editing="true"
+                  @delete="handleDelete(value)" <!-- Bind the handleDelete method -->
+                >{{ parseSearchValue(value) }}</app-deletable-indicator>
+              </slot>
+            </li>
+          </template>
         </template>
-      </app-dialog-process-content-layout>
-
-      <app-dialog-icon-content-layout
-        v-else
-        :icon="icon"
-        :icon-color="iconColor"
-        :header="t(header)"
-        :message-line1="message ? t(message) : message"
-      >
-        <template #extra-content>
-          <div v-if="isSyncUnsuccessfulDialog || isSyncFailedDialog" class="unsuccessful">
-            <div class="unsuccessful-message">
-              <p v-if="isSyncUnsuccessfulDialog" class="lead dialog-content-message">
-                {{ t('sync.modal.message.unsuccessful') }}
-              </p>
-
-              <div v-if="status?.currentModelName && (isSyncUnsuccessfulDialog || isSyncFailedDialog)">
-                <app-icon name="sync_error" />
-                <p class="lead dialog-content-message model-failed-message">
-                  {{ t('sync.modal.message.modelFailed', { modelName: status.currentModelName }) }}
-                </p>
-              </div>
-
-              <p class="lead dialog-content-message contact-message">
-                {{ t('sync.modal.message.contact') }}
-                <a :href="t('common.link')" rel="noopener noreferrer" target="_blank">
-                  {{ t('common.helpSupport') }}
-                </a>.
-              </p>
-            </div>
-          </div>
-          <div v-else-if="isSyncSuccessfulDialog">
-            <ul class="sync-progress lead dialog-content-message">
-              <li v-for="(model, index) of status?.syncedModels" :key="index" class="synced">
-                <app-icon name="sync_success" />
-                {{ model }}
-              </li>
-            </ul>
-          </div>
-        </template>
-      </app-dialog-icon-content-layout>
-    </template>
-
-    <template #button-row>
-      <app-button
-        data-testid="reject-sync"
-        :disabled="appStore.hasBlockingTasks"
-        :class="{ primary: !isSyncRequestDialog, secondary: isSyncRequestDialog }"
-        @click="emit('close')"
-        >{{ t('common.close') }}</app-button
-      >
-      <app-button
-        v-if="isSyncRequestDialog"
-        data-testid="accept-sync"
-        class="primary"
-        :disabled="startDisabled"
-        @click="start"
-        >{{ t('common.start') }}</app-button
-      >
-    </template>
-  </app-dialog-container>
+        <li v-else-if="!noMatchFound">{{ t('properties.noAvailableValues') }}</li>
+        <li v-if="noMatchFound">{{ t('properties.noMatch') }}</li>
+      </ol>
+    </div>
+  </div>
 </template>
 
-<script setup lang="ts">
-import { watch, computed } from 'vue';
-import { PickupPaths, useI18n } from 'vue-i18n';
+<script setup lang="ts" generic="T extends MinimalSearchValue">
+import { computed, ref, VueElement, watch } from 'vue';
+import AppInput from '@/components/common/formElements/input/Input.vue';
+import AppIconButton from '@/components/common/icon/IconButton.vue';
+import { useI18n } from 'vue-i18n';
+import {
+  matchedResultsFilter,
+  MinimalSearchValue,
+  parseSearchValue
+} from '@/components/common/search/helpers/match.js';
 
-import { exhaustiveTypeCheck } from '@ebitoolmx/predicates';
+defineOptions({ name: 'SearchProperties' });
 
-import AppIcon from '@/components/common/icon/Icon.vue';
-import AppButton from '@/components/common/formElements/button/Button.vue';
-import AppDialogContainer from '@/components/common/dialog/layouts/DialogContainer.vue';
-import AppDialogIconContentLayout, {
-  IconColor
-} from '@/components/common/dialog/layouts/DialogIconContentLayout.vue';
-import AppDialogProcessContentLayout from '@/components/common/dialog/layouts/DialogProcessContentLayout.vue';
-
-import { SyncDialogType } from '@/typings/sync.js';
-import { DialogNames } from '@/typings/dialog.js';
-
-import { useAppStore } from '@/stores/app.js';
-import { useProductsStore } from '@/stores/products.js';
-import { useConnectionsStore } from '@/stores/connections.js';
-import { useEditorStore } from '@/stores/editor.js';
-
-import { eventService, EventType } from '@/services/event.js';
-
-import { LocaleMessage } from '@/locale/en.js';
-import { MXSyncProgressEvent, MXSyncProgressStatus } from '@ebitoolmx/gateway-types';
-import { useAuthService } from '@/auth/index.js';
-
-defineOptions({ name: 'Sync' });
-const props = defineProps<{
-  dialogType: SyncDialogType;
-  status?: MXSyncProgressEvent;
+const props = withDefaults(
+  defineProps<{
+    modelValue?: string;
+    altStyle?: boolean;
+    selectedValues?: T[];
+    availableValues?: T[];
+    enabled?: boolean;
+    inputPlaceholder?: string;
+    labelKey?: string;
+  }>(),
+  {
+    modelValue: '',
+    selectedValues: () => [],
+    availableValues: () => [],
+    inputPlaceholder: 'Search list',
+    labelKey: ''
+  }
+);
+const emit = defineEmits<{
+  'update:modelValue': [value: string];
+  blur: [value: string];
+  selected: [value: T];
+  clear: [];
+  delete: [value: T];
 }>();
 
-const emit = defineEmits(['close']);
-const appStore = useAppStore();
-const { userDetails } = useAuthService();
-const connectionsStore = useConnectionsStore();
-const productsStore = useProductsStore();
-const editorStore = useEditorStore();
 const { t } = useI18n();
-
-const header = computed<PickupPaths<LocaleMessage>>(() => {
-  switch (props.dialogType) {
-    case SyncDialogType.Requested:
-      return 'sync.modal.header.requested';
-    case SyncDialogType.Initialising:
-      return 'sync.modal.header.initialising';
-    case SyncDialogType.Processing:
-      return 'sync.modal.header.processing';
-    case SyncDialogType.Successful:
-      return 'sync.modal.header.successful';
-    case SyncDialogType.InitialisingFailed:
-      return 'sync.modal.header.initialisingFailed';
-    case SyncDialogType.Unsuccessful:
-      return 'sync.modal.header.unsuccessful';
-    case SyncDialogType.Offline:
-      return 'sync.modal.header.offline';
-    default:
-      return exhaustiveTypeCheck(props.dialogType);
-  }
+const searchString = ref(props.modelValue);
+const searchDropdown = ref<HTMLElement | InstanceType<typeof VueElement>>();
+const opened = ref(false);
+const filteredAvailableValues = computed<T[]>(() => {
+  const valueMap = props.selectedValues.map(val => parseSearchValue(val));
+  return props.availableValues.filter(value => !valueMap.includes(parseSearchValue(value)));
 });
+const noMatchFound = computed<boolean>(
+  () =>
+    !!searchString.value &&
+    !matchedResultsFilter(searchString.value, props.selectedValues).length &&
+    (!props.enabled || !matchedResultsFilter(searchString.value, props.availableValues).length)
+);
+const parsedLabelKey = computed<string>(() => (props.labelKey ? ` ${t(props.labelKey)}` : ''));
+const availableLabel = computed<string>(() => t('properties.available') + parsedLabelKey.value);
+const selectedLabel = computed<string>(() => t('properties.selected') + parsedLabelKey.value);
 
-const message = computed<PickupPaths<LocaleMessage> | null>(() => {
-  switch (props.dialogType) {
-    case SyncDialogType.Requested:
-      return 'sync.modal.message.requested';
-    case SyncDialogType.Processing:
-      return 'sync.modal.message.progress';
-    case SyncDialogType.Offline:
-      return 'sync.modal.message.offline';
-    case SyncDialogType.Initialising:
-      return null;
-    case SyncDialogType.Successful:
-      return null;
-    case SyncDialogType.InitialisingFailed:
-      return null;
-    case SyncDialogType.Unsuccessful:
-      return null;
-    default:
-      return exhaustiveTypeCheck(props.dialogType);
-  }
-});
-
-const progressIcon = (model: string) => {
-  if (props.status?.syncedModels.includes(model)) {
-    return 'sync_success';
-  }
-  if (props.status?.currentModelName === model) {
-    return 'sync_in_progress';
-  }
-  return 'sync_no_progress';
+const clearSearch = () => {
+  searchString.value = '';
+  emit('clear');
 };
 
-const icon = computed<string>(() => {
-  switch (props.dialogType) {
-    case SyncDialogType.Requested:
-      return 'sync';
-    case SyncDialogType.Successful:
-      return 'sync_success';
-    case SyncDialogType.Unsuccessful:
-      return 'warning';
-    case SyncDialogType.InitialisingFailed:
-      return 'warning';
-    case SyncDialogType.Offline:
-      return 'cloud-offline';
-    default:
-      return '';
+const select = (value: T) => {
+  searchString.value = parseSearchValue(value);
+  emit('selected', value);
+  opened.value = false;
+};
+
+const focusDropdown = () => {
+  if (searchDropdown?.value?.focus) {
+    searchDropdown.value.focus();
+  } else if ((searchDropdown?.value as any)?.$el?.focus) {
+    (searchDropdown.value as any).$el.focus();
   }
-});
+  opened.value = true;
+};
 
-const iconColor = computed<IconColor>(() => {
-  switch (props.dialogType) {
-    case SyncDialogType.Requested:
-      return 'text';
-    case SyncDialogType.Successful:
-      return 'success';
-    case SyncDialogType.Unsuccessful:
-      return 'danger';
-    case SyncDialogType.InitialisingFailed:
-      return 'danger';
-    case SyncDialogType.Offline:
-      return 'warning';
-    default:
-      return 'text';
-  }
-});
+const closeDropdown = () => {
+  if (document.activeElement === searchDropdown.value) return;
+  opened.value = false;
+  emit('blur', searchString.value);
+};
 
-const isSyncRequestDialog = computed<boolean>(() => props.dialogType === SyncDialogType.Requested);
+const handleDelete = (value: T) => {
+  emit('delete', value);
+  setTimeout(() => {
+    opened.value = true; // Ensure the dropdown remains open after deletion
+  }, 0);
+};
 
-const isSyncProcessingDialog = computed<boolean>(
-  () =>
-    props.dialogType === SyncDialogType.Processing ||
-    props.dialogType === SyncDialogType.Initialising
-);
-
-const isSyncSuccessfulDialog = computed<boolean>(
-  () => props.dialogType === SyncDialogType.Successful
-);
-
-const isSyncUnsuccessfulDialog = computed<boolean>(
-  () => props.dialogType === SyncDialogType.Unsuccessful
-);
-
-const isSyncFailedDialog = computed<boolean>(
-  () => props.dialogType === SyncDialogType.InitialisingFailed
-);
-
-const startDisabled = computed<boolean>(
-  () =>
-    appStore.hasBlockingTasks ||
-    props.status?.syncProgressStatus === MXSyncProgressStatus.Synchronizing
-);
-
-function start() {
-  const email = userDetails.value?.email;
-  if (!email) return;
-
-  productsStore.syncProduct({
-    productId: productsStore.activeProductId,
-    userId: email,
-    editorType: editorStore.editorType
-  });
-}
-
-watch(
-  () => connectionsStore.isOffline,
-  nowOffline => {
-    if (nowOffline)
-      eventService.emit(EventType.OpenDialog, {
-        dialogName: DialogNames.Sync,
-        options: {
-          props: {
-            dialogType: SyncDialogType.Offline
-          },
-          modal: true
-        }
-      });
-  }
-);
+watch(searchString, value => emit('update:modelValue', value));
 </script>
 
 <style scoped>
-.sync-progress {
-  color: var(--font-disabled-color);
-  fill: var(--font-disabled-color);
-
-  li {
-    display: flex;
-    align-items: center;
-
-    .icon {
-      margin-right: var(--base-spacing-1);
-    }
-  }
-
-  .syncing {
-    color: var(--font-color);
-    fill: var(--font-color);
-  }
-
-  .synced {
-    color: var(--success);
-    fill: var(--success);
-  }
+/* Existing styles */
+.search-property-wrapper {
+  position: relative;
 }
-
-.unsuccessful {
+.results {
+  width: 100%;
+  position: absolute;
+  z-index: 9;
+  box-shadow: var(--search-results-shadow);
+  border: 1px solid var(--search-results-border-color);
+}
+li {
+  background: var(--dropdown-color);
+  height: 2.5em;
+  padding: 0 var(--base-spacing-2);
   display: flex;
-  flex-direction:
-
- column;
+  flex-direction: row;
+  align-content: center;
   align-items: center;
-  text-align: center;
-  padding: var(--base-spacing-4);
-
-  .unsuccessful-message {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    text-align: center;
-
-    a {
-      color: var(--link-color);
-      margin-left: 5px;
-    }
-
-    p {
-      margin: 0;
-      padding: 0;
-    }
-  }
-
-  .failed-model,
-  .failed-initialized {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    color: var(--danger);
-    fill: var(--danger);
-    text-align: center;
-
-    p {
-      padding-left: var(--base-spacing-1);
-      margin: 0;
-    }
-  }
+  user-select: none;
+  white-space: nowrap;
+}
+.scrollable {
+  overflow: hidden;
+  overflow-y: auto;
+  max-height: 30vh;
+}
+.selectable {
+  cursor: pointer;
+}
+.selectable:hover {
+  background: var(--dropdown-hover-color);
+}
+.search-input {
+  height: 40px;
+}
+.search-input:deep(.field) {
+  height: 100%;
 }
 </style>
 ```
 
-### Explanation
-1. **HTML**:
-    - The structure of the HTML ensures that all the relevant messages are within a single flex container to align them correctly.
-    - The icon and the messages are wrapped within `div` tags to ensure proper alignment.
-    - The `contact-message` class is added to group the contact message and help desk link together.
+2. **Ensure `TrackItemProperty.vue` correctly utilizes the delete event:**
 
-2. **CSS**:
-    - The `.unsuccessful` class ensures that the messages are centered.
-    - The `.unsuccessful-message` class uses `flex-direction: column` and `align-items: center` to ensure the elements are vertically centered and aligned.
-    - The `.contact-message` class ensures that the contact message and help desk link are treated as a single block element to remove any extra spacing.
-
-This approach ensures that the failed initialization message and the contact message are centered within the dialog, keeping the text aligned as required.
-
------
-Alright, let's restructure the `Sync.vue` to ensure the unsuccessful message is displayed correctly and is easier to maintain and extend in the future. Here is a more flexible approach to structuring the component.
-
-### `Sync.vue`
-```vue
-<template>
-  <app-dialog-container title-key="sync.modal.title" data-testid="dialog-sync">
-    <template #content>
-      <app-dialog-process-content-layout
-        v-if="isSyncProcessingDialog"
-        :header="t(header)"
-        :description-line1="message ? t(message) : message"
-      >
-        <template #extra-content>
-          <ul class="sync-progress lead dialog-content-message">
-            <li
-              v-for="(model, index) of status?.allModels"
-              :key="index"
-              :class="{
-                syncing: status?.currentModelName === model,
-                synced: status?.syncedModels.includes(model)
-              }"
-            >
-              <app-icon :name="progressIcon(model)" />
-              {{ model }}
-            </li>
-          </ul>
-        </template>
-      </app-dialog-process-content-layout>
-
-      <app-dialog-icon-content-layout
-        v-else
-        :icon="icon"
-        :icon-color="iconColor"
-        :header="t(header)"
-        :message-line1="message ? t(message) : message"
-      >
-        <template #extra-content>
-          <div v-if="isSyncUnsuccessfulDialog || isSyncFailedDialog" class="unsuccessful">
-            <div class="unsuccessful-message">
-              <p v-if="isSyncUnsuccessfulDialog" class="lead dialog-content-message">
-                {{ t('sync.modal.message.unsuccessful') }}
-              </p>
-
-              <div v-if="status?.currentModelName && (isSyncUnsuccessfulDialog || isSyncFailedDialog)">
-                <app-icon name="sync_error" />
-                <p class="lead dialog-content-message model-failed-message">
-                  {{ t('sync.modal.message.modelFailed', { modelName: status.currentModelName }) }}
-                </p>
-              </div>
-
-              <p class="lead dialog-content-message">
-                {{ t('sync.modal.message.contact') }}
-                <a :href="t('common.link')" rel="noopener noreferrer" target="_blank">
-                  {{ t('common.helpSupport') }}
-                </a>.
-              </p>
-            </div>
-          </div>
-          <div v-else-if="isSyncSuccessfulDialog">
-            <ul class="sync-progress lead dialog-content-message">
-              <li v-for="(model, index) of status?.syncedModels" :key="index" class="synced">
-                <app-icon name="sync_success" />
-                {{ model }}
-              </li>
-            </ul>
-          </div>
-        </template>
-      </app-dialog-icon-content-layout>
-    </template>
-
-    <template #button-row>
-      <app-button
-        data-testid="reject-sync"
-        :disabled="appStore.hasBlockingTasks"
-        :class="{ primary: !isSyncRequestDialog, secondary: isSyncRequestDialog }"
-        @click="emit('close')"
-        >{{ t('common.close') }}</app-button
-      >
-      <app-button
-        v-if="isSyncRequestDialog"
-        data-testid="accept-sync"
-        class="primary"
-        :disabled="startDisabled"
-        @click="start"
-        >{{ t('common.start') }}</app-button
-      >
-    </template>
-  </app-dialog-container>
-</template>
-
-<script setup lang="ts">
-import { watch, computed } from 'vue';
-import { PickupPaths, useI18n } from 'vue-i18n';
-
-import { exhaustiveTypeCheck } from '@ebitoolmx/predicates';
-
-import AppIcon from '@/components/common/icon/Icon.vue';
-import AppButton from '@/components/common/formElements/button/Button.vue';
-import AppDialogContainer from '@/components/common/dialog/layouts/DialogContainer.vue';
-import AppDialogIconContentLayout, {
-  IconColor
-} from '@/components/common/dialog/layouts/DialogIconContentLayout.vue';
-import AppDialogProcessContentLayout from '@/components/common/dialog/layouts/DialogProcessContentLayout.vue';
-
-import { SyncDialogType } from '@/typings/sync.js';
-import { DialogNames } from '@/typings/dialog.js';
-
-import { useAppStore } from '@/stores/app.js';
-import { useProductsStore } from '@/stores/products.js';
-import { useConnectionsStore } from '@/stores/connections.js';
-import { useEditorStore } from '@/stores/editor.js';
-
-import { eventService, EventType } from '@/services/event.js';
-
-import { LocaleMessage } from '@/locale/en.js';
-import { MXSyncProgressEvent, MXSyncProgressStatus } from '@ebitoolmx/gateway-types';
-import { useAuthService } from '@/auth/index.js';
-
-defineOptions({ name: 'Sync' });
-const props = defineProps<{
-  dialogType: SyncDialogType;
-  status?: MXSyncProgressEvent;
-}>();
-
-const emit = defineEmits(['close']);
-const appStore = useAppStore();
-const { userDetails } = useAuthService();
-const connectionsStore = useConnectionsStore();
-const productsStore = useProductsStore();
-const editorStore = useEditorStore();
-const { t } = useI18n();
-
-const header = computed<PickupPaths<LocaleMessage>>(() => {
-  switch (props.dialogType) {
-    case SyncDialogType.Requested:
-      return 'sync.modal.header.requested';
-    case SyncDialogType.Initialising:
-      return 'sync.modal.header.initialising';
-    case SyncDialogType.Processing:
-      return 'sync.modal.header.processing';
-    case SyncDialogType.Successful:
-      return 'sync.modal.header.successful';
-    case SyncDialogType.InitialisingFailed:
-      return 'sync.modal.header.initialisingFailed';
-    case SyncDialogType.Unsuccessful:
-      return 'sync.modal.header.unsuccessful';
-    case SyncDialogType.Offline:
-      return 'sync.modal.header.offline';
-    default:
-      return exhaustiveTypeCheck(props.dialogType);
-  }
-});
-
-const message = computed<PickupPaths<LocaleMessage> | null>(() => {
-  switch (props.dialogType) {
-    case SyncDialogType.Requested:
-      return 'sync.modal.message.requested';
-    case SyncDialogType.Processing:
-      return 'sync.modal.message.progress';
-    case SyncDialogType.Offline:
-      return 'sync.modal.message.offline';
-    case SyncDialogType.Initialising:
-      return null;
-    case SyncDialogType.Successful:
-      return null;
-    case SyncDialogType.InitialisingFailed:
-      return null;
-    case SyncDialogType.Unsuccessful:
-      return null;
-    default:
-      return exhaustiveTypeCheck(props.dialogType);
-  }
-});
-
-const progressIcon = (model: string) => {
-  if (props.status?.syncedModels.includes(model)) {
-    return 'sync_success';
-  }
-  if (props.status?.currentModelName === model) {
-    return 'sync_in_progress';
-  }
-  return 'sync_no_progress';
-};
-
-const icon = computed<string>(() => {
-  switch (props.dialogType) {
-    case SyncDialogType.Requested:
-      return 'sync';
-    case SyncDialogType.Successful:
-      return 'sync_success';
-    case SyncDialogType.Unsuccessful:
-      return 'warning';
-    case SyncDialogType.InitialisingFailed:
-      return 'warning';
-    case SyncDialogType.Offline:
-      return 'cloud-offline';
-    default:
-      return '';
-  }
-});
-
-const iconColor = computed<IconColor>(() => {
-  switch (props.dialogType) {
-    case SyncDialogType.Requested:
-      return 'text';
-    case SyncDialogType.Successful:
-      return 'success';
-    case SyncDialogType.Unsuccessful:
-      return 'danger';
-    case SyncDialogType.InitialisingFailed:
-      return 'danger';
-    case SyncDialogType.Offline:
-      return 'warning';
-    default:
-      return 'text';
-  }
-});
-
-const isSyncRequestDialog = computed<boolean>(() => props.dialogType === SyncDialogType.Requested);
-
-const isSyncProcessingDialog = computed<boolean>(
-  () =>
-    props.dialogType === SyncDialogType.Processing ||
-    props.dialogType === SyncDialogType.Initialising
-);
-
-const isSyncSuccessfulDialog = computed<boolean>(
-  () => props.dialogType === SyncDialogType.Successful
-);
-
-const isSyncUnsuccessfulDialog = computed<boolean>(
-  () => props.dialogType === SyncDialogType.Unsuccessful
-);
-
-const isSyncFailedDialog = computed<boolean>(
-  () => props.dialogType === SyncDialogType.InitialisingFailed
-);
-
-const startDisabled = computed<boolean>(
-  () =>
-    appStore.hasBlockingTasks ||
-    props.status?.syncProgressStatus === MXSyncProgressStatus.Synchronizing
-);
-
-function start() {
-  const email = userDetails.value?.email;
-  if (!email) return;
-
-  productsStore.syncProduct({
-    productId: productsStore.activeProductId,
-    userId: email,
-    editorType: editorStore.editorType
-  });
-}
-
-watch(
-  () => connectionsStore.isOffline,
-  nowOffline => {
-    if (nowOffline)
-      eventService.emit(EventType.OpenDialog, {
-        dialogName: DialogNames.Sync,
-        options: {
-          props: {
-            dialogType: SyncDialogType.Offline
-          },
-          modal: true
-        }
-      });
-  }
-);
-</script>
-
-<style scoped>
-.sync-progress {
-  color: var(--font-disabled-color);
-  fill: var(--font-disabled-color);
-
-  li {
-    display: flex;
-    align-items: center;
-
-    .icon {
-      margin-right: var(--base-spacing-1);
-    }
-  }
-
-  .syncing {
-    color: var(--font-color);
-    fill: var(--font-color);
-  }
-
-  .synced {
-    color: var(--success);
-    fill: var(--success);
-  }
-}
-
-.unsuccessful {
-  display: flex;
-  flex-direction: column;
-  align-items: center
-
-;
-  text-align: center;
-
-  .unsuccessful-message {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    text-align: center;
-
-    a {
-      color: var(--link-color);
-      margin-left: 5px;
-    }
-
-    p {
-      margin: 0;
-      padding: 0;
-    }
-  }
-
-  .failed-model,
-  .failed-initialized {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    color: var(--danger);
-    fill: var(--danger);
-    text-align: center;
-
-    p {
-      padding-left: var(--base-spacing-1);
-      margin: 0;
-    }
-  }
-}
-</style>
-```
-
-### Explanation
-1. **HTML**:
-    - The structure of the HTML is updated to ensure that all the relevant messages are within a single flex container to align them correctly.
-    - The icon and the messages are wrapped within `div` tags to ensure proper alignment.
-
-2. **CSS**:
-    - The `unsuccessful` class is updated to center align all the elements within it.
-    - The `unsuccessful-message` class is now using `flex-direction: column` and `align-items: center` to ensure the elements are vertically centered and aligned.
-
-This approach ensures that the failed initialization message and the contact message are centered within the dialog, keeping the text aligned as required.
-
-
-------
-Let's adjust the HTML structure to ensure that the text elements are properly centered and styled as desired. We'll use a combination of flexbox properties and CSS styles to align everything correctly.
-
-Here's the updated `Sync.vue` and CSS:
-
-### `Sync.vue`
-```vue
-<template>
-  <app-dialog-container title-key="sync.modal.title" data-testid="dialog-sync">
-    <template #content>
-      <app-dialog-process-content-layout
-        v-if="isSyncProcessingDialog"
-        :header="t(header)"
-        :description-line1="message ? t(message) : message"
-      >
-        <template #extra-content>
-          <ul class="sync-progress lead dialog-content-message">
-            <li
-              v-for="(model, index) of status?.allModels"
-              :key="index"
-              :class="{
-                syncing: status?.currentModelName === model,
-                synced: status?.syncedModels.includes(model)
-              }"
-            >
-              <app-icon :name="progressIcon(model)" />
-              {{ model }}
-            </li>
-          </ul>
-        </template>
-      </app-dialog-process-content-layout>
-
-      <app-dialog-icon-content-layout
-        v-else
-        :icon="icon"
-        :icon-color="iconColor"
-        :header="t(header)"
-        :message-line1="message ? t(message) : message"
-      >
-        <template #extra-content>
-          <div v-if="isSyncUnsuccessfulDialog || isSyncFailedDialog" class="unsuccessful">
-            <div class="unsuccessful-message">
-              <p v-if="isSyncUnsuccessfulDialog" class="lead dialog-content-message">
-                {{ t('sync.modal.message.unsuccessful') }}
-              </p>
-
-              <div v-if="status?.currentModelName && isSyncUnsuccessfulDialog" class="failed-model">
-                <app-icon name="sync_error" />
-                <p class="lead dialog-content-message">{{ status.currentModelName }}</p>
-              </div>
-
-              <div v-if="status?.currentModelName && isSyncFailedDialog" class="failed-initialized">
-                <p class="lead dialog-content-message">
-                  {{ t('sync.modal.message.modelFailed', { modelName: status.currentModelName }) }}
-                </p>
-              </div>
-
-              <p class="lead dialog-content-message">
-                {{ t('sync.modal.message.contact') }}
-                <a :href="t('common.link')" rel="noopener noreferrer" target="_blank">
-                  {{ t('common.helpSupport') }}
-                </a>.
-              </p>
-            </div>
-          </div>
-          <div v-else-if="isSyncSuccessfulDialog">
-            <ul class="sync-progress lead dialog-content-message">
-              <li v-for="(model, index) of status?.syncedModels" :key="index" class="synced">
-                <app-icon name="sync_success" />
-                {{ model }}
-              </li>
-            </ul>
-          </div>
-        </template>
-      </app-dialog-icon-content-layout>
-    </template>
-
-    <template #button-row>
-      <app-button
-        data-testid="reject-sync"
-        :disabled="appStore.hasBlockingTasks"
-        :class="{ primary: !isSyncRequestDialog, secondary: isSyncRequestDialog }"
-        @click="emit('close')"
-        >{{ t('common.close') }}</app-button
-      >
-      <app-button
-        v-if="isSyncRequestDialog"
-        data-testid="accept-sync"
-        class="primary"
-        :disabled="startDisabled"
-        @click="start"
-        >{{ t('common.start') }}</app-button
-      >
-    </template>
-  </app-dialog-container>
-</template>
-
-<script setup lang="ts">
-import { watch, computed } from 'vue';
-import { PickupPaths, useI18n } from 'vue-i18n';
-
-import { exhaustiveTypeCheck } from '@ebitoolmx/predicates';
-
-import AppIcon from '@/components/common/icon/Icon.vue';
-import AppButton from '@/components/common/formElements/button/Button.vue';
-import AppDialogContainer from '@/components/common/dialog/layouts/DialogContainer.vue';
-import AppDialogIconContentLayout, {
-  IconColor
-} from '@/components/common/dialog/layouts/DialogIconContentLayout.vue';
-import AppDialogProcessContentLayout from '@/components/common/dialog/layouts/DialogProcessContentLayout.vue';
-
-import { SyncDialogType } from '@/typings/sync.js';
-import { DialogNames } from '@/typings/dialog.js';
-
-import { useAppStore } from '@/stores/app.js';
-import { useProductsStore } from '@/stores/products.js';
-import { useConnectionsStore } from '@/stores/connections.js';
-import { useEditorStore } from '@/stores/editor.js';
-
-import { eventService, EventType } from '@/services/event.js';
-
-import { LocaleMessage } from '@/locale/en.js';
-import { MXSyncProgressEvent, MXSyncProgressStatus } from '@ebitoolmx/gateway-types';
-import { useAuthService } from '@/auth/index.js';
-
-defineOptions({ name: 'Sync' });
-const props = defineProps<{
-  dialogType: SyncDialogType;
-  status?: MXSyncProgressEvent;
-}>();
-
-const emit = defineEmits(['close']);
-const appStore = useAppStore();
-const { userDetails } = useAuthService();
-const connectionsStore = useConnectionsStore();
-const productsStore = useProductsStore();
-const editorStore = useEditorStore();
-const { t } = useI18n();
-
-const header = computed<PickupPaths<LocaleMessage>>(() => {
-  switch (props.dialogType) {
-    case SyncDialogType.Requested:
-      return 'sync.modal.header.requested';
-    case SyncDialogType.Initialising:
-      return 'sync.modal.header.initialising';
-    case SyncDialogType.Processing:
-      return 'sync.modal.header.processing';
-    case SyncDialogType.Successful:
-      return 'sync.modal.header.successful';
-    case SyncDialogType.InitialisingFailed:
-      return 'sync.modal.header.initialisingFailed';
-    case SyncDialogType.Unsuccessful:
-      return 'sync.modal.header.unsuccessful';
-    case SyncDialogType.Offline:
-      return 'sync.modal.header.offline';
-    default:
-      return exhaustiveTypeCheck(props.dialogType);
-  }
-});
-
-const message = computed<PickupPaths<LocaleMessage> | null>(() => {
-  switch (props.dialogType) {
-    case SyncDialogType.Requested:
-      return 'sync.modal.message.requested';
-    case SyncDialogType.Processing:
-      return 'sync.modal.message.progress';
-    case SyncDialogType.Offline:
-      return 'sync.modal.message.offline';
-    case SyncDialogType.Initialising:
-      return null;
-    case SyncDialogType.Successful:
-      return null;
-    case SyncDialogType.InitialisingFailed:
-      return null;
-    case SyncDialogType.Unsuccessful:
-      return null;
-    default:
-      return exhaustiveTypeCheck(props.dialogType);
-  }
-});
-
-const progressIcon = (model: string) => {
-  if (props.status?.syncedModels.includes(model)) {
-    return 'sync_success';
-  }
-  if (props.status?.currentModelName === model) {
-    return 'sync_in_progress';
-  }
-  return 'sync_no_progress';
-};
-
-const icon = computed<string>(() => {
-  switch (props.dialogType) {
-    case SyncDialogType.Requested:
-      return 'sync';
-    case SyncDialogType.Successful:
-      return 'sync_success';
-    case SyncDialogType.Unsuccessful:
-      return 'warning';
-    case SyncDialogType.InitialisingFailed:
-      return 'warning';
-    case SyncDialogType.Offline:
-      return 'cloud-offline';
-    default:
-      return '';
-  }
-});
-
-const iconColor = computed<IconColor>(() => {
-  switch (props.dialogType) {
-    case SyncDialogType.Requested:
-      return 'text';
-    case SyncDialogType.Successful:
-      return 'success';
-    case SyncDialogType.Unsuccessful:
-      return 'danger';
-    case SyncDialogType.InitialisingFailed:
-      return 'danger';
-    case SyncDialogType.Offline:
-      return 'warning';
-    default:
-      return 'text';
-  }
-});
-
-const isSyncRequestDialog = computed<boolean>(() => props.dialogType === SyncDialogType.Requested);
-
-const isSyncProcessingDialog = computed<boolean>(
-  () =>
-    props.dialogType === SyncDialogType.Processing ||
-    props.dialogType === SyncDialogType.Initialising
-);
-
-const isSyncSuccessfulDialog = computed<boolean>(
-  () => props.dialogType === SyncDialogType.Successful
-);
-
-const isSyncUnsuccessfulDialog = computed<boolean>(
-  () => props.dialogType === SyncDialogType.Unsuccessful
-);
-
-const isSyncFailedDialog = computed<boolean>(
-  () => props.dialogType === SyncDialogType.InitialisingFailed
-);
-
-const startDisabled = computed<boolean>(
-  () =>
-    appStore.hasBlockingTasks ||
-    props.status?.syncProgressStatus === MXSyncProgressStatus.Synchronizing
-);
-
-function start() {
-  const email = userDetails.value?.email;
-  if (!email) return;
-
-  productsStore.syncProduct({
-    productId: productsStore.activeProductId,
-    userId: email,
-    editorType: editorStore.editorType
-  });
-}
-
-watch(
-  () => connectionsStore.isOffline,
-  nowOffline => {
-    if (nowOffline)
-      eventService.emit(EventType.OpenDialog, {
-        dialogName: DialogNames.Sync,
-        options: {
-          props: {
-            dialogType: SyncDialogType.Offline
-          },
-          modal: true
-        }
-      });
-  }
-);
-</script>
-```
-
-### CSS
-```css
-.sync-progress {
-  color: var(--font-disabled-color);
-  fill: var(--font-disabled-color);
-
-  li {
-    display: flex;
-    align-items: center;
-
-    .icon {
-      margin-right: var(--base-spacing-1);
-    }
-  }
-
-  .syncing {
-    color: var(--font-color);
-    fill
-
-: var(--font-color);
-  }
-
-  .synced {
-    color: var(--success);
-    fill: var(--success);
-  }
-}
-
-.unsuccessful {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  text-align: center;
-
-  .unsuccessful-message {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-
-    a {
-      color: var(--link-color);
-      margin-left: 5px;
-    }
-
-    p {
-      margin: 0;
-      padding: 0;
-    }
-  }
-
-  .failed-model,
-  .failed-initialized {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    color: var(--danger);
-    fill: var(--danger);
-    text-align: center;
-
-    p {
-      padding-left: var(--base-spacing-1);
-      margin: 0;
-    }
-  }
-}
-```
-
-### Explanation
-1. **HTML**:
-    - I've updated the HTML structure to ensure that the "modelFailed" and "contact" messages are within the `unsuccessful-message` container. This ensures both messages are within the same flex container.
-
-2. **CSS**:
-    - The `unsuccessful-message` class now ensures that its children are centered using `flex-direction: column` and `align-items: center`.
-    - The `failed-initialized` class is also centered using `display: flex` and `align-items: center`.
-
-This setup ensures that both messages are properly centered within the dialog, keeping the text aligned as required.
-
------
-Let's adjust the CSS to ensure that the entire content within the `.unsuccessful-message` is properly centered, including both the failed initialization message and the contact message.
-
-Here's the updated CSS to achieve that:
-
-```css
-.unsuccessful {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  text-align: center;
-
-  .unsuccessful-message {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-
-    a {
-      color: var(--link-color);
-      margin-left: 5px;
-    }
-
-    p {
-      margin: 0;
-      padding: 0;
-    }
-  }
-
-  .failed-model,
-  .failed-initialized {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    color: var(--danger);
-    fill: var(--danger);
-    text-align: center;
-
-    p {
-      padding-left: var(--base-spacing-1);
-      margin: 0;
-    }
-  }
-}
-```
-
-And ensure the HTML structure is correct:
-
-```html
-<template>
-  <app-dialog-container title-key="sync.modal.title" data-testid="dialog-sync">
-    <template #content>
-      <app-dialog-process-content-layout
-        v-if="isSyncProcessingDialog"
-        :header="t(header)"
-        :description-line1="message ? t(message) : message"
-      >
-        <template #extra-content>
-          <ul class="sync-progress lead dialog-content-message">
-            <li
-              v-for="(model, index) of status?.allModels"
-              :key="index"
-              :class="{
-                syncing: status?.currentModelName === model,
-                synced: status?.syncedModels.includes(model)
-              }"
-            >
-              <app-icon :name="progressIcon(model)" />
-              {{ model }}
-            </li>
-          </ul>
-        </template>
-      </app-dialog-process-content-layout>
-
-      <app-dialog-icon-content-layout
-        v-else
-        :icon="icon"
-        :icon-color="iconColor"
-        :header="t(header)"
-        :message-line1="message ? t(message) : message"
-      >
-        <template #extra-content>
-          <div v-if="isSyncUnsuccessfulDialog || isSyncFailedDialog" class="unsuccessful">
-            <div class="unsuccessful-message">
-              <p v-if="isSyncUnsuccessfulDialog" class="lead dialog-content-message">
-                {{ t('sync.modal.message.unsuccessful') }}
-              </p>
-
-              <div v-if="status?.currentModelName && isSyncUnsuccessfulDialog" class="failed-model">
-                <app-icon name="sync_error" />
-                <p class="lead dialog-content-message">{{ status.currentModelName }}</p>
-              </div>
-
-              <div v-if="status?.currentModelName && isSyncFailedDialog" class="failed-initialized">
-                <p class="lead dialog-content-message">
-                  {{ t('sync.modal.message.modelFailed', { modelName: status.currentModelName }) }}
-                </p>
-              </div>
-
-              <p class="lead dialog-content-message">{{ t('sync.modal.message.contact') }} <a :href="t('common.link')" rel="noopener noreferrer" target="_blank">{{ t('common.helpSupport') }}</a>.</p>
-            </div>
-          </div>
-          <div v-else-if="isSyncSuccessfulDialog">
-            <ul class="sync-progress lead dialog-content-message">
-              <li v-for="(model, index) of status?.syncedModels" :key="index" class="synced">
-                <app-icon name="sync_success" />
-                {{ model }}
-              </li>
-            </ul>
-          </div>
-        </template>
-      </app-dialog-icon-content-layout>
-    </template>
-
-    <template #button-row>
-      <app-button
-        data-testid="reject-sync"
-        :disabled="appStore.hasBlockingTasks"
-        :class="{ primary: !isSyncRequestDialog, secondary: isSyncRequestDialog }"
-        @click="emit('close')"
-        >{{ t('common.close') }}</app-button
-      >
-      <app-button
-        v-if="isSyncRequestDialog"
-        data-testid="accept-sync"
-        class="primary"
-        :disabled="startDisabled"
-        @click="start"
-        >{{ t('common.start') }}</app-button
-      >
-    </template>
-  </app-dialog-container>
-</template>
-<script setup lang="ts">
-import { watch, computed } from 'vue';
-import { PickupPaths, useI18n } from 'vue-i18n';
-
-import { exhaustiveTypeCheck } from '@ebitoolmx/predicates';
-
-import AppIcon from '@/components/common/icon/Icon.vue';
-import AppButton from '@/components/common/formElements/button/Button.vue';
-import AppDialogContainer from '@/components/common/dialog/layouts/DialogContainer.vue';
-import AppDialogIconContentLayout, {
-  IconColor
-} from '@/components/common/dialog/layouts/DialogIconContentLayout.vue';
-import AppDialogProcessContentLayout from '@/components/common/dialog/layouts/DialogProcessContentLayout.vue';
-
-import { SyncDialogType } from '@/typings/sync.js';
-import { DialogNames } from '@/typings/dialog.js';
-
-import { useAppStore } from '@/stores/app.js';
-import { useProductsStore } from '@/stores/products.js';
-import { useConnectionsStore } from '@/stores/connections.js';
-import { useEditorStore } from '@/stores/editor.js';
-
-import { eventService, EventType } from '@/services/event.js';
-
-import { LocaleMessage } from '@/locale/en.js';
-import { MXSyncProgressEvent, MXSyncProgressStatus } from '@ebitoolmx/gateway-types';
-import { useAuthService } from '@/auth/index.js';
-
-defineOptions({ name: 'Sync' });
-const props = defineProps<{
-  dialogType: SyncDialogType;
-  status?: MXSyncProgressEvent;
-}>();
-
-const emit = defineEmits(['close']);
-const appStore = useAppStore();
-const { userDetails } = useAuthService();
-const connectionsStore = useConnectionsStore();
-const productsStore = useProductsStore();
-const editorStore = useEditorStore();
-const { t } = useI18n();
-
-const header = computed<PickupPaths<LocaleMessage>>(() => {
-  switch (props.dialogType) {
-    case SyncDialogType.Requested:
-      return 'sync.modal.header.requested';
-    case SyncDialogType.Initialising:
-      return 'sync.modal.header.initialising';
-    case SyncDialogType.Processing:
-      return 'sync.modal.header.processing';
-    case SyncDialogType.Successful:
-      return 'sync.modal.header.successful';
-    case SyncDialogType.InitialisingFailed:
-      return 'sync.modal.header.initialisingFailed';
-    case SyncDialogType.Unsuccessful:
-      return 'sync.modal.header.unsuccessful';
-    case SyncDialogType.Offline:
-      return 'sync.modal.header.offline';
-    default:
-      return exhaustiveTypeCheck(props.dialogType);
-  }
-});
-
-const message = computed<PickupPaths<LocaleMessage> | null>(() => {
-  switch (props.dialogType) {
-    case SyncDialogType.Requested:
-      return 'sync.modal.message.requested';
-    case SyncDialogType.Processing:
-      return 'sync.modal.message.progress';
-    case SyncDialogType.Offline:
-      return 'sync.modal.message.offline';
-    case SyncDialogType.Initialising:
-      return null;
-    case SyncDialogType.Successful:
-      return null;
-    case SyncDialogType.InitialisingFailed:
-      return null;
-    case SyncDialogType.Unsuccessful:
-      return null;
-    default:
-      return exhaustiveTypeCheck(props.dialogType);
-  }
-});
-
-const progressIcon = (model: string) => {
-  if (props.status?.syncedModels.includes(model)) {
-    return 'sync_success';
-  }
-  if (props.status?.currentModelName === model) {
-    return 'sync_in_progress';
-  }
-  return 'sync_no_progress';
-};
-
-const icon = computed<string>(() => {
-  switch (props.dialogType) {
-    case SyncDialogType.Requested:
-      return 'sync';
-    case SyncDialogType.Successful:
-      return 'sync_success';
-    case SyncDialogType.Unsuccessful:
-      return 'warning';
-    case SyncDialogType.InitialisingFailed:
-      return 'warning';
-    case SyncDialogType.Offline:
-      return 'cloud-offline';
-    default:
-      return '';
-  }
-});
-
-const iconColor = computed<IconColor>(() => {
-  switch (props.dialogType) {
-    case SyncDialogType.Requested:
-      return 'text';
-    case SyncDialogType.Successful:
-      return 'success';
-    case SyncDialogType.Unsuccessful:
-      return 'danger';
-    case SyncDialogType.InitialisingFailed:
-      return 'danger';
-    case SyncDialogType.Offline:
-      return 'warning';
-    default:
-      return 'text';
-  }
-});
-
-const isSyncRequestDialog = computed<boolean>(() => props.dialogType === SyncDialogType.Requested);
-
-const isSyncProcessingDialog = computed<boolean>(
-  () =>
-    props.dialogType === SyncDialogType.Processing ||
-    props.dialogType === SyncDialogType.Initialising
-);
-
-const isSyncSuccessfulDialog = computed<boolean>(
-  () => props.dialogType === SyncDialogType.Successful
-);
-
-const isSyncUnsuccessfulDialog = computed<boolean>(
-  () => props.dialogType === SyncDialogType.Unsuccessful
-);
-
-const isSyncFailedDialog = computed<boolean>(
-  () => props.dialogType === SyncDialogType.InitialisingFailed
-);
-
-const startDisabled = computed<boolean>(
-  () =>
-    appStore.hasBlockingTasks ||
-    props.status?.syncProgressStatus === MXSyncProgressStatus.Synchronizing
-);
-
-function start() {
-  const email = userDetails.value?.email;
-  if (!email) return;
-
-  productsStore.syncProduct({
-    productId: productsStore.activeProductId,
-    userId: email,
-    editorType
-
-: editorStore.editorType
-  });
-}
-
-watch(
-  () => connectionsStore.isOffline,
-  nowOffline => {
-    if (nowOffline)
-      eventService.emit(EventType.OpenDialog, {
-        dialogName: DialogNames.Sync,
-        options: {
-          props: {
-            dialogType: SyncDialogType.Offline
-          },
-          modal: true
-        }
-      });
-  }
-);
-</script>
-
-<style scoped>
-.sync-progress {
-  color: var(--font-disabled-color);
-  fill: var(--font-disabled-color);
-
-  li {
-    display: flex;
-    align-items: center;
-
-    .icon {
-      margin-right: var(--base-spacing-1);
-    }
-  }
-
-  .syncing {
-    color: var(--font-color);
-    fill: var(--font-color);
-  }
-
-  .synced {
-    color: var(--success);
-    fill: var(--success);
-  }
-}
-
-.unsuccessful {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  text-align: center;
-
-  .unsuccessful-message {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-
-    a {
-      color: var(--link-color);
-      margin-left: 5px;
-    }
-
-    p {
-      margin: 0;
-      padding: 0;
-    }
-  }
-
-  .failed-model,
-  .failed-initialized {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    color: var(--danger);
-    fill: var(--danger);
-    text-align: center;
-
-    p {
-      padding-left: var(--base-spacing-1);
-      margin: 0;
-    }
-  }
-}
-</style>
-```
-
-This CSS and HTML structure should ensure that the "failed initialization" and "contact help desk" messages are properly centered and aligned as required.
-
-
-
------
-I see. Let's try another approach to ensure the text is centered properly and the `contact` and `help desk` messages remain together.
-
-Update your CSS to ensure proper alignment and spacing:
-
-```css
-.unsuccessful {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-
-  .unsuccessful-message {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    text-align: center;
-
-    a {
-      color: var(--link-color);
-      margin-left: 5px;
-    }
-
-    p {
-      margin: 0;
-      padding: 0;
-    }
-  }
-
-  .failed-model,
-  .failed-initialized {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    color: var(--danger);
-    fill: var(--danger);
-    text-align: center;
-
-    p {
-      padding-left: var(--base-spacing-1);
-      margin: 0;
-    }
-  }
-}
-```
-
-Update your template in `Sync.vue` as follows:
+Update `TrackItemProperty.vue` to ensure it correctly handles the delete event without closing the dropdown.
 
 ```vue
 <template>
-  <app-dialog-container title-key="sync.modal.title" data-testid="dialog-sync">
-    <template #content>
-      <app-dialog-process-content-layout
-        v-if="isSyncProcessingDialog"
-        :header="t(header)"
-        :description-line1="message ? t(message) : message"
-      >
-        <template #extra-content>
-          <ul class="sync-progress lead dialog-content-message">
-            <li
-              v-for="(model, index) of status?.allModels"
-              :key="index"
-              :class="{
-                syncing: status?.currentModelName === model,
-                synced: status?.syncedModels.includes(model)
-              }"
-            >
-              <app-icon :name="progressIcon(model)" />
-              {{ model }}
-            </li>
-          </ul>
-        </template>
-      </app-dialog-process-content-layout>
-
-      <app-dialog-icon-content-layout
-        v-else
-        :icon="icon"
-        :icon-color="iconColor"
-        :header="t(header)"
-        :message-line1="message ? t(message) : message"
-      >
-        <template #extra-content>
-          <div v-if="isSyncUnsuccessfulDialog || isSyncFailedDialog" class="unsuccessful">
-            <div class="unsuccessful-message">
-              <p v-if="isSyncUnsuccessfulDialog" class="lead dialog-content-message">
-                {{ t('sync.modal.message.unsuccessful') }}
-              </p>
-
-              <div v-if="status?.currentModelName && isSyncUnsuccessfulDialog" class="failed-model">
-                <app-icon name="sync_error" />
-                <p class="lead dialog-content-message">{{ status.currentModelName }}</p>
-              </div>
-
-              <div v-if="status?.currentModelName && isSyncFailedDialog" class="failed-initialized">
-                <p class="lead dialog-content-message">
-                  {{ t('sync.modal.message.modelFailed', { modelName: status.currentModelName }) }}
-                </p>
-              </div>
-
-              <p class="lead dialog-content-message">
-                {{ t('sync.modal.message.contact') }}
-                <a :href="t('common.link')" rel="noopener noreferrer" target="_blank" class="lead dialog-content-message">{{ t('common.helpSupport') }}</a>.
-              </p>
-            </div>
-          </div>
-          <div v-else-if="isSyncSuccessfulDialog">
-            <ul class="sync-progress lead dialog-content-message">
-              <li v-for="(model, index) of status?.syncedModels" :key="index" class="synced">
-                <app-icon name="sync_success" />
-                {{ model }}
-              </li>
-            </ul>
-          </div>
-        </template>
-      </app-dialog-icon-content-layout>
+  <app-property-container
+    :id="id"
+    v-bind="$attrs"
+    :full-width="true"
+    :editing="isEditing"
+    :editable="editorStore.isEditMode"
+    icon="picker"
+    :title="t('common.edit')"
+    :value-size="value.length || 0"
+    property-type="trackItemsReference"
+    @toggle-editing="toggleEdit"
+  >
+    <template #label-row-end>
+      <div class="label-row-end">
+        <app-icon-button
+          :name="showAll ? 'chevron-up' : 'chevron-down'"
+          :title="t('common.all')"
+          @click="toggleShowAll"
+        />
+      </div>
     </template>
-
-    <template #button-row>
-      <app-button
-        data-testid="reject-sync"
-        :disabled="appStore.hasBlockingTasks"
-        :class="{ primary: !isSyncRequestDialog, secondary: isSyncRequestDialog }"
-        @click="emit('close')"
-        >{{ t('common.close') }}</app-button
-      >
-      <app-button
-        v-if="isSyncRequestDialog"
-        data-testid="accept-sync"
-        class="primary"
-        :disabled="startDisabled"
-        @click="start"
-        >{{ t('common.start') }}</app-button
-      >
-    </template>
-  </app-dialog-container>
+    <div class="element">
+      <div class="button-row">
+        <app-indicator
+          v-if="!isEmpty()"
+          class="inline"
+          :highlighted="isAllValuesHighlighted()"
+          :highlightable="true"
+          :type="IndicatorType.Main"
+          @click="highlight(value)"
+        >
+          {{ t('common.all') }}
+        </app-indicator>
+        <app-indicator
+          class="inline"
+          :highlightable="true"
+          :highlighted="isSplitViewSelected()"
+          @click="togglePositionsView()"
+        >
+          {{ t('common.positions') }}
+        </app-indicator>
+      </div>
+      <div v-if="showAll">
+        <app-search-properties
+          :available-values="availableValues"
+          :selected-values="value"
+          :enabled="!$attrs.readonly"
+          :input-placeholder="t('properties.search')"
+          :label-key="'properties.labels.' + id"
+          @selected="addValue"
+          @delete="deleteValue" <!-- Ensure this line exists to handle delete events -->
+          ><template #selectedValue="selectedValue">
+            <app-deletable-indicator
+              :value="selectedValue"
+              :is-editing="isEditing"
+              @delete="deleteValue(selectedValue)"
+              @select="selectItemGroup(selectedValue)"
+              @highlight="highlight([selectedValue])" /></template
+        ></app-search-properties>
+        <div class="prop-values">
+          <div class="prop-value-group">
+            <div class="order title">{{ t('properties.order') }}</div>
+            <div class="value">{{ t('properties.trackItems') }}</div>
+          </div>
+          <div
+            v-for="(group, index) in groupedTrackItems"
+            :key="index"
+            :class="{ multiple: group.length > 1 }"
+            class="prop-value-group"
+          >
+            <template v-for="[propValue, i] in group" :key="propValue.displayText">
+              <div class="order">{{ i }}</div>
+              <div class="handle" />
+              <app-deletable-indicator
+                class="value"
+                :value="propValue"
+                :is-editing="isEditing"
+                @delete="deleteValue(propValue)"
+                @select="selectItemGroup(propValue)"
+                @highlight="highlight([propValue])"
+              />
+            </template>
+          </div>
+        </div>
+      </div>
+    </div>
+  </app-property-container>
 </template>
-
 <script setup lang="ts">
-import { watch, computed } from 'vue';
-import { PickupPaths, useI18n } from 'vue-i18n';
-
-import { exhaustiveTypeCheck } from '@ebitoolmx/predicates';
-
-import AppIcon from '@/components/common/icon/Icon.vue';
-import AppButton from '@/components/common/formElements/button/Button.vue';
-import AppDialogContainer from '@/components/common/dialog/layouts/DialogContainer.vue';
-import AppDialogIconContentLayout, {
-  IconColor
-} from '@/components/common/dialog/layouts/DialogIconContentLayout.vue';
-import AppDialogProcessContentLayout from '@/components/common/dialog/layouts/DialogProcessContentLayout.vue';
-
-import { SyncDialogType } from '@/typings/sync.js';
-import { DialogNames } from '@/typings/dialog.js';
-
-import { useAppStore } from '@/stores/app.js';
-import { useProductsStore } from '@/stores/products.js';
-import { useConnectionsStore } from '@/stores/connections.js';
-import { useEditorStore } from '@/stores/editor.js';
-
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
+import { useI18n } from 'vue-i18n';
+import { PropertyValue } from '@ebitoolmx/cbss-types';
+import { XmiId } from '@ebitoolmx/eclipse-types';
+import { extractXmiId } from '@ebitoolmx/ebitool-classic-types';
+import { isNotEmpty } from '@ebitoolmx/predicates';
+import { ToolType, ToolItemCategory } from '@/typings/tools.js';
+import { SplitView } from '@/typings/splitView.js';
+import { IndicatorType } from '@/typings/indicator.js';
+import { PlainSelection } from '@/typings/selection/PlainSelection.js';
+import { PlainHighlight } from '@/typings/highlight/PlainHighlight.js';
+import AppDeletableIndicator from '@/components/common/indicator/DeletableIndicator.vue';
+import AppIndicator from '@/components/common/indicator/Indicator.vue';
+import AppPropertyContainer from '@/components/common/sidePanelElements/PropertyContainer.vue';
+import AppSearchProperties from '@/components/common/search/SearchProperties.vue';
+import AppIconButton from '@/components/common/icon/IconButton.vue';
 import { eventService, EventType } from '@/services/event.js';
-
-import { LocaleMessage } from '@/locale/en.js';
-import { MXSyncProgressEvent, MXSyncProgressStatus } from '@ebitoolmx/gateway-types';
-import { useAuthService } from '@/auth/index.js';
-
-defineOptions({ name: 'Sync' });
-const props = defineProps<{
-  dialogType: SyncDialogType;
-  status?: MXSyncProgressEvent;
-}>();
-
-const emit = defineEmits(['close']);
-const appStore = useAppStore();
-const { userDetails } = useAuthService();
-const connectionsStore = useConnectionsStore();
-const productsStore = useProductsStore();
-const editorStore = useEditorStore();
-const { t } = useI18n();
-
-const header = computed<PickupPaths<LocaleMessage>>(() => {
-  switch (props.dialogType) {
-    case SyncDialogType.Requested:
-      return 'sync.modal.header.requested';
-    case SyncDialogType.Initialising:
-      return 'sync.modal.header.initialising';
-    case SyncDialogType.Processing:
-      return 'sync.modal.header.processing';
-    case SyncDialogType.Successful:
-      return 'sync.modal.header.successful';
-    case SyncDialogType.InitialisingFailed:
-      return 'sync.modal.header.initialisingFailed';
-    case SyncDialogType.Unsuccessful:
-      return 'sync.modal.header.unsuccessful';
-    case SyncDialogType.Offline:
-      return 'sync.modal.header.offline';
-    default:
-      return exhaustiveTypeCheck(props.dialogType);
-  }
-});
-
-const message = computed<PickupPaths<LocaleMessage> | null>(() => {
-  switch (props.dialogType) {
-    case SyncDialogType.Requested:
-      return 'sync.modal.message.requested';
-    case SyncDialogType.Processing:
-      return 'sync.modal.message.progress';
-    case SyncDialogType.Offline:
-      return 'sync.modal.message.offline';
-    case SyncDialogType.Initialising:
-      return null;
-    case SyncDialogType.Successful:
-      return null;
-    case SyncDialogType.InitialisingFailed:
-      return null;
-    case SyncDialogType.Unsuccessful:
-      return null;
-    default:
-      return exhaustiveTypeCheck(props.dialogType);
-  }
-});
-
-const progressIcon = (model: string) => {
-  if (props.status?.syncedModels.includes(model)) {
-    return 'sync_success';
-  }
-  if (props.status?.currentModelName === model) {
-    return 'sync_in_progress';
-  }
-  return 'sync_no_progress';
-};
-
-const icon = computed<string>(() => {
-  switch (props.dialogType) {
-    case SyncDialogType.Requested:
-      return 'sync';
-    case SyncDialogType.Successful:
-      return 'sync_success';
-    case SyncDialogType.Unsuccessful:
-      return 'warning';
-    case SyncDialogType.InitialisingFailed:
-      return 'warning';
-    case SyncDialogType.Offline:
-      return 'cloud-offline';
-    default:
-      return '';
-  }
-});
-
-const iconColor = computed<IconColor>(() => {
-  switch (props.dialogType) {
-    case SyncDialogType.Requested:
-      return 'text';
-    case SyncDialogType.Successful:
-      return 'success';
-    case SyncDialogType.Unsuccessful:
-      return 'danger';
-    case SyncDialogType.InitialisingFailed:
-      return 'danger';
-    case SyncDialogType.Offline:
-      return 'warning';
-    default:
-      return 'text';
-  }
-});
-
-const isSyncRequestDialog = computed<boolean>(() => props.dialogType === SyncDialogType.Requested);
-
-const isSyncProcessingDialog = computed<boolean>(
-  () =>
-    props.dialogType === SyncDialogType.Processing ||
-    props.dialogType === SyncDialogType.Initialising
-);
-
-const isSyncSuccessfulDialog = computed<boolean>(
-  () => props.dialogType === SyncDialogType.Successful
-);
-
-const isSyncUnsuccessfulDialog = computed<boolean>(
-  () => props.dialogType === SyncDialogType.Unsuccessful
-);
-
-const isSyncFailedDialog = computed<boolean>(
-  () => props.dialogType === SyncDialogType.InitialisingFailed
-);
-
-const startDisabled = computed<boolean>(
-  () =>
-    appStore.hasBlockingTasks ||
-    props.status?.syncProgressStatus === MXSyncProgressStatus.Synchronizing
-);
-
-function start() {
-  const email = userDetails.value?.email;
-  if (!email) return;
-
-  productsStore.syncProduct({
-    productId: productsStore.active
-
-ProductId,
-    userId: email,
-    editorType: editorStore.editorType
-  });
-}
-
-watch(
-  () => connectionsStore.isOffline,
-  nowOffline => {
-    if (nowOffline)
-      eventService.emit(EventType.OpenDialog, {
-        dialogName: DialogNames.Sync,
-        options: {
-          props: {
-            dialogType: SyncDialogType.Offline
-          },
-          modal: true
-        }
-      });
-  }
-);
-</script>
-
-<style scoped>
-.sync-progress {
-  color: var(--font-disabled-color);
-  fill: var(--font-disabled-color);
-
-  li {
-    display: flex;
-    align-items: center;
-
-    .icon {
-      margin-right: var(--base-spacing-1);
-    }
-  }
-
-  .syncing {
-    color: var(--font-color);
-    fill: var(--font-color);
-  }
-
-  .synced {
-    color: var(--success);
-    fill: var(--success);
-  }
-}
-
-.unsuccessful {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-
-  .unsuccessful-message {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    text-align: center;
-
-    a {
-      color: var(--link-color);
-      margin-left: 5px;
-    }
-
-    p {
-      margin: 0;
-      padding: 0;
-    }
-  }
-
-  .failed-model,
-  .failed-initialized {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    color: var(--danger);
-    fill: var(--danger);
-    text-align: center;
-
-    p {
-      padding-left: var(--base-spacing-1);
-      margin: 0;
-    }
-  }
-}
-</style>
-```
-
-This should ensure that the text in the `unsuccessful` section is centered properly and that the `contact` and `help desk` messages remain on the same line.
-
-------
-To ensure the text is centered, you need to ensure both the container and the text itself are set up for center alignment. Let's make sure the parent containers and the text elements are aligned properly.
-
-Update your CSS as follows:
-
-```css
-.unsuccessful {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-
-  .unsuccessful-message {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    text-align: center;
-
-    a {
-      color: var(--link-color);
-    }
-
-    p {
-      padding-right: var(--base-spacing-1);
-      margin: 0;
-    }
-  }
-
-  .failed-model,
-  .failed-initialized {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    color: var(--danger);
-    fill: var(--danger);
-    text-align: center;
-
-    p {
-      padding-left: var(--base-spacing-1);
-      margin: 0;
-    }
-  }
-}
-```
-
-And update your template in `Sync.vue` as follows:
-
-```vue
-<template>
-  <app-dialog-container title-key="sync.modal.title" data-testid="dialog-sync">
-    <template #content>
-      <app-dialog-process-content-layout
-        v-if="isSyncProcessingDialog"
-        :header="t(header)"
-        :description-line1="message ? t(message) : message"
-      >
-        <template #extra-content>
-          <ul class="sync-progress lead dialog-content-message">
-            <li
-              v-for="(model, index) of status?.allModels"
-              :key="index"
-              :class="{
-                syncing: status?.currentModelName === model,
-                synced: status?.syncedModels.includes(model)
-              }"
-            >
-              <app-icon :name="progressIcon(model)" />
-              {{ model }}
-            </li>
-          </ul>
-        </template>
-      </app-dialog-process-content-layout>
-
-      <app-dialog-icon-content-layout
-        v-else
-        :icon="icon"
-        :icon-color="iconColor"
-        :header="t(header)"
-        :message-line1="message ? t(message) : message"
-      >
-        <template #extra-content>
-          <div v-if="isSyncUnsuccessfulDialog || isSyncFailedDialog" class="unsuccessful">
-            <div class="unsuccessful-message">
-              <p v-if="isSyncUnsuccessfulDialog" class="lead dialog-content-message">
-                {{ t('sync.modal.message.unsuccessful') }}
-              </p>
-
-              <div v-if="status?.currentModelName && isSyncUnsuccessfulDialog" class="failed-model">
-                <app-icon name="sync_error" />
-                <p class="lead dialog-content-message">{{ status.currentModelName }}</p>
-              </div>
-
-              <div v-if="status?.currentModelName && isSyncFailedDialog" class="failed-initialized">
-                <p class="lead dialog-content-message">
-                  {{ t('sync.modal.message.modelFailed', { modelName: status.currentModelName }) }}
-                </p>
-              </div>
-
-              <p class="lead dialog-content-message">{{ t('sync.modal.message.contact') }} 
-                <a :href="t('common.link')" rel="noopener noreferrer" target="_blank" class="lead dialog-content-message">{{ t('common.helpSupport') }}</a>.
-              </p>
-            </div>
-          </div>
-          <div v-else-if="isSyncSuccessfulDialog">
-            <ul class="sync-progress lead dialog-content-message">
-              <li v-for="(model, index) of status?.syncedModels" :key="index" class="synced">
-                <app-icon name="sync_success" />
-                {{ model }}
-              </li>
-            </ul>
-          </div>
-        </template>
-      </app-dialog-icon-content-layout>
-    </template>
-
-    <template #button-row>
-      <app-button
-        data-testid="reject-sync"
-        :disabled="appStore.hasBlockingTasks"
-        :class="{ primary: !isSyncRequestDialog, secondary: isSyncRequestDialog }"
-        @click="emit('close')"
-        >{{ t('common.close') }}</app-button
-      >
-      <app-button
-        v-if="isSyncRequestDialog"
-        data-testid="accept-sync"
-        class="primary"
-        :disabled="startDisabled"
-        @click="start"
-        >{{ t('common.start') }}</app-button
-      >
-    </template>
-  </app-dialog-container>
-</template>
-
-<script setup lang="ts">
-import { watch, computed } from 'vue';
-import { PickupPaths, useI18n } from 'vue-i18n';
-
-import { exhaustiveTypeCheck } from '@ebitoolmx/predicates';
-
-import AppIcon from '@/components/common/icon/Icon.vue';
-import AppButton from '@/components/common/formElements/button/Button.vue';
-import AppDialogContainer from '@/components/common/dialog/layouts/DialogContainer.vue';
-import AppDialogIconContentLayout, {
-  IconColor
-} from '@/components/common/dialog/layouts/DialogIconContentLayout.vue';
-import AppDialogProcessContentLayout from '@/components/common/dialog/layouts/DialogProcessContentLayout.vue';
-
-import { SyncDialogType } from '@/typings/sync.js';
-import { DialogNames } from '@/typings/dialog.js';
-
-import { useAppStore } from '@/stores/app.js';
-import { useProductsStore } from '@/stores/products.js';
-import { useConnectionsStore } from '@/stores/connections.js';
+import { useInfrastructureStore } from '@/stores/infrastructure.js';
+import { useDiagramStore } from '@/stores/diagram.js';
 import { useEditorStore } from '@/stores/editor.js';
+import { isMXObjectIdentifier } from '@/typings/selection';
 
-import { eventService, EventType } from '@/services/event.js';
+defineOptions({ name: 'TrackItemProperty' });
 
-import { LocaleMessage } from '@/locale/en.js';
-import { MXSyncProgressEvent, MXSyncProgressStatus } from '@ebitoolmx/gateway-types';
-import { useAuthService } from '@/auth/index.js';
-
-defineOptions({ name: 'Sync' });
-const props = defineProps<{
-  dialogType: SyncDialogType;
-  status?: MXSyncProgressEvent;
-}>();
-
-const emit = defineEmits(['close']);
-const appStore = useAppStore();
-const { userDetails } = useAuthService();
-const connectionsStore = useConnectionsStore();
-const productsStore = useProductsStore();
-const editorStore = useEditorStore();
+const props = withDefaults(
+  defineProps<{
+    id: string;
+    value?: PropertyValue[];
+    availableValues?: PropertyValue[];
+    category?: string;
+  }>(),
+  {
+    value: () => [],
+    availableValues: () => [],
+    category: 'Unknown'
+  }
+);
+const emit = defineEmits<{ change: [xmiIds: XmiId[]] }>();
 const { t } = useI18n();
-
-const header = computed<PickupPaths<LocaleMessage>>(() => {
-  switch (props.dialogType) {
-    case SyncDialogType.Requested:
-      return 'sync.modal.header.requested';
-    case SyncDialogType.Initialising:
-      return 'sync.modal.header.initialising';
-    case SyncDialogType.Processing:
-      return 'sync.modal.header.processing';
-    case SyncDialogType.Successful:
-      return 'sync.modal.header.successful';
-    case SyncDialogType.InitialisingFailed:
-      return 'sync.modal.header.initialisingFailed';
-    case SyncDialogType.Unsuccessful:
-      return 'sync.modal.header.unsuccessful';
-    case SyncDialogType.Offline:
-      return 'sync.modal.header.offline';
-    default:
-      return exhaustiveTypeCheck(props.dialogType);
-  }
-});
-
-const message = computed<PickupPaths<LocaleMessage> | null>(() => {
-  switch (props.dialogType) {
-    case SyncDialogType.Requested:
-      return 'sync.modal.message.requested';
-    case SyncDialogType.Processing:
-      return 'sync.modal.message.progress';
-    case SyncDialogType.Offline:
-      return 'sync.modal.message.offline';
-    case SyncDialogType.Initialising:
-      return null;
-    case SyncDialogType.Successful:
-      return null;
-    case SyncDialogType.InitialisingFailed:
-      return null;
-    case SyncDialogType.Unsuccessful:
-      return null;
-    default:
-      return exhaustiveTypeCheck(props.dialogType);
-  }
-});
-
-const progressIcon = (model: string) => {
-  if (props.status?.syncedModels.includes(model)) {
-    return 'sync_success';
-  }
-  if (props.status?.currentModelName === model) {
-    return 'sync_in_progress';
-  }
-  return 'sync_no_progress';
-};
-
-const icon = computed<string>(() => {
-  switch (props.dialogType) {
-    case SyncDialogType.Requested:
-      return 'sync';
-    case SyncDialogType.Successful:
-      return 'sync_success';
-    case SyncDialogType.Unsuccessful:
-      return 'warning';
-    case SyncDialogType.InitialisingFailed:
-      return 'warning';
-    case SyncDialogType.Offline:
-      return 'cloud-offline';
-    default:
-      return '';
-  }
-});
-
-const iconColor = computed<IconColor>(() => {
-  switch (props.dialogType) {
-    case SyncDialogType.Requested:
-      return 'text';
-    case SyncDialogType.Successful:
-      return 'success';
-    case SyncDialogType.Unsuccessful:
-      return 'danger';
-    case SyncDialogType.InitialisingFailed:
-      return 'danger';
-    case SyncDialogType.Offline:
-      return 'warning';
-    default:
-      return 'text';
-  }
-});
-
-const isSyncRequestDialog = computed<boolean>(() => props.dialogType === SyncDialogType.Requested);
-
-const isSyncProcessingDialog = computed<boolean>(
-  () =>
-    props.dialogType === SyncDialogType.Processing ||
-    props.dialogType === SyncDialogType.Initialising
-);
-
-const isSyncSuccessfulDialog = computed<boolean>(
-  () => props.dialogType === SyncDialogType.Successful
-);
-
-const isSyncUnsuccessfulDialog = computed<boolean>(
-  () => props.dialogType === SyncDialogType.Unsuccessful
-);
-
-const isSyncFailedDialog = computed<boolean>(
-  () => props.dialogType === SyncDialogType.InitialisingFailed
-);
-
-const startDisabled = computed<boolean>(
-  () =>
-    appStore.hasBlockingTasks ||
-    props.status?.syncProgressStatus === MXSyncProgressStatus.Synchronizing
-);
-
-function start() {
-  const email = userDetails.value?.email;
-  if (!email) return;
-
-  productsStore.syncProduct({
-    productId
-
-: productsStore.activeProductId,
-    userId: email,
-    editorType: editorStore.editorType
-  });
-}
-
-watch(
-  () => connectionsStore.isOffline,
-  nowOffline => {
-    if (nowOffline)
-      eventService.emit(EventType.OpenDialog, {
-        dialogName: DialogNames.Sync,
-        options: {
-          props: {
-            dialogType: SyncDialogType.Offline
-          },
-          modal: true
-        }
-      });
-  }
-);
-</script>
-
-<style scoped>
-.sync-progress {
-  color: var(--font-disabled-color);
-  fill: var(--font-disabled-color);
-
-  li {
-    display: flex;
-    align-items: center;
-
-    .icon {
-      margin-right: var(--base-spacing-1);
-    }
-  }
-
-  .syncing {
-    color: var(--font-color);
-    fill: var(--font-color);
-  }
-
-  .synced {
-    color: var(--success);
-    fill: var(--success);
-  }
-}
-
-.unsuccessful {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-
-  .unsuccessful-message {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    text-align: center;
-
-    a {
-      color: var(--link-color);
-    }
-
-    p {
-      padding-right: var(--base-spacing-1);
-      margin: 0;
-    }
-  }
-
-  .failed-model,
-  .failed-initialized {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    color: var(--danger);
-    fill: var(--danger);
-    text-align: center;
-
-    p {
-      padding-left: var(--base-spacing-1);
-      margin: 0;
-    }
-  }
-}
-</style>
-```
-
-This should ensure that the text in the `unsuccessful` section is centered properly and that the `contact` and `help desk` messages remain on the same line.
-
-
-
------
-To center the text within the dialog, you can adjust the CSS for the text elements to align them centrally. Here’s an updated version of your CSS:
-
-```css
-.unsuccessful {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-
-  .unsuccessful-message {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    text-align: center;
-
-    a {
-      color: var(--link-color);
-    }
-
-    p {
-      padding-right: var(--base-spacing-1);
-      margin: 0;
-    }
-  }
-
-  .failed-model {
-    display: flex;
-    align-items: center;
-    color: var(--danger);
-    fill: var(--danger);
-
-    p {
-      padding-left: var(--base-spacing-1);
-      text-align: center;
-    }
-  }
-
-  .failed-initialized {
-    display: flex;
-    align-items: center;
-    text-align: center;
-    p {
-      padding-left: var(--base-spacing-1);
-      margin: 0;
-    }
-  }
-}
-```
-
-In this update, the `text-align: center` property is added to the `p` elements and the `.unsuccessful-message` container to ensure the text is centered within the dialog. This should align the text centrally, matching the design more closely.
-
-------
-To ensure the layout of your error message and help desk link match your design, you need to refine the CSS and potentially adjust the HTML structure slightly. The key is to ensure the message text and the link are styled properly and kept on the same line or appropriate lines.
-
-Here's the updated code for `Sync.vue` to match the design closely:
-
-```vue
-<template>
-  <app-dialog-container title-key="sync.modal.title" data-testid="dialog-sync">
-    <template #content>
-      <app-dialog-process-content-layout
-        v-if="isSyncProcessingDialog"
-        :header="t(header)"
-        :description-line1="message ? t(message) : message"
-      >
-        <template #extra-content>
-          <ul class="sync-progress lead dialog-content-message">
-            <li
-              v-for="(model, index) of status?.allModels"
-              :key="index"
-              :class="{
-                syncing: status?.currentModelName === model,
-                synced: status?.syncedModels.includes(model)
-              }"
-            >
-              <app-icon :name="progressIcon(model)" />
-              {{ model }}
-            </li>
-          </ul>
-        </template>
-      </app-dialog-process-content-layout>
-
-      <app-dialog-icon-content-layout
-        v-else
-        :icon="icon"
-        :icon-color="iconColor"
-        :header="t(header)"
-        :message-line1="message ? t(message) : message"
-      >
-        <template #extra-content>
-          <div v-if="isSyncUnsuccessfulDialog || isSyncFailedDialog" class="unsuccessful">
-            <div class="unsuccessful-message">
-              <p v-if="isSyncUnsuccessfulDialog" class="lead dialog-content-message">
-                {{ t('sync.modal.message.unsuccessful') }}
-              </p>
-
-              <div v-if="status?.currentModelName && isSyncUnsuccessfulDialog" class="failed-model">
-                <app-icon name="sync_error" />
-                <p class="lead dialog-content-message">{{ status.currentModelName }}</p>
-              </div>
-
-              <div v-if="status?.currentModelName && isSyncFailedDialog" class="failed-initialized">
-                <p class="lead dialog-content-message">
-                  {{ t('sync.modal.message.modelFailed', { modelName: status.currentModelName }) }}
-                </p>
-              </div>
-
-              <p class="lead dialog-content-message">
-                {{ t('sync.modal.message.contact') }}
-                <a
-                  :href="t('common.link')"
-                  rel="noopener noreferrer"
-                  target="_blank"
-                  class="lead dialog-content-message"
-                >
-                  {{ t('common.helpSupport') }}
-                </a>.
-              </p>
-            </div>
-          </div>
-          <div v-else-if="isSyncSuccessfulDialog">
-            <ul class="sync-progress lead dialog-content-message">
-              <li v-for="(model, index) of status?.syncedModels" :key="index" class="synced">
-                <app-icon name="sync_success" />
-                {{ model }}
-              </li>
-            </ul>
-          </div>
-        </template>
-      </app-dialog-icon-content-layout>
-    </template>
-
-    <template #button-row>
-      <app-button
-        data-testid="reject-sync"
-        :disabled="appStore.hasBlockingTasks"
-        :class="{ primary: !isSyncRequestDialog, secondary: isSyncRequestDialog }"
-        @click="emit('close')"
-        >{{ t('common.close') }}</app-button
-      >
-      <app-button
-        v-if="isSyncRequestDialog"
-        data-testid="accept-sync"
-        class="primary"
-        :disabled="startDisabled"
-        @click="start"
-        >{{ t('common.start') }}</app-button
-      >
-    </template>
-  </app-dialog-container>
-</template>
-
-<script setup lang="ts">
-import { watch, computed } from 'vue';
-import { PickupPaths, useI18n } from 'vue-i18n';
-
-import { exhaustiveTypeCheck } from '@ebitoolmx/predicates';
-
-import AppIcon from '@/components/common/icon/Icon.vue';
-import AppButton from '@/components/common/formElements/button/Button.vue';
-import AppDialogContainer from '@/components/common/dialog/layouts/DialogContainer.vue';
-import AppDialogIconContentLayout, {
-  IconColor
-} from '@/components/common/dialog/layouts/DialogIconContentLayout.vue';
-import AppDialogProcessContentLayout from '@/components/common/dialog/layouts/DialogProcessContentLayout.vue';
-
-import { SyncDialogType } from '@/typings/sync.js';
-import { DialogNames } from '@/typings/dialog.js';
-
-import { useAppStore } from '@/stores/app.js';
-import { useProductsStore } from '@/stores/products.js';
-import { useConnectionsStore } from '@/stores/connections.js';
-import { useEditorStore } from '@/stores/editor.js';
-
-import { eventService, EventType } from '@/services/event.js';
-
-import { LocaleMessage } from '@/locale/en.js';
-import { MXSyncProgressEvent, MXSyncProgressStatus } from '@ebitoolmx/gateway-types';
-import { useAuthService } from '@/auth/index.js';
-
-defineOptions({ name: 'Sync' });
-const props = defineProps<{
-  dialogType: SyncDialogType;
-  status?: MXSyncProgressEvent;
-}>();
-
-const emit = defineEmits(['close']);
-const appStore = useAppStore();
-const { userDetails } = useAuthService();
-const connectionsStore = useConnectionsStore();
-const productsStore = useProductsStore();
 const editorStore = useEditorStore();
-const { t } = useI18n();
-
-const header = computed<PickupPaths<LocaleMessage>>(() => {
-  switch (props.dialogType) {
-    case SyncDialogType.Requested:
-      return 'sync.modal.header.requested';
-    case SyncDialogType.Initialising:
-      return 'sync.modal.header.initialising';
-    case SyncDialogType.Processing:
-      return 'sync.modal.header.processing';
-    case SyncDialogType.Successful:
-      return 'sync.modal.header.successful';
-    case SyncDialogType.InitialisingFailed:
-      return 'sync.modal.header.initialisingFailed';
-    case SyncDialogType.Unsuccessful:
-      return 'sync.modal.header.unsuccessful';
-    case SyncDialogType.Offline:
-      return 'sync.modal.header.offline';
-    default:
-      return exhaustiveTypeCheck(props.dialogType);
-  }
-});
-
-const message = computed<PickupPaths<LocaleMessage> | null>(() => {
-  switch (props.dialogType) {
-    case SyncDialogType.Requested:
-      return 'sync.modal.message.requested';
-    case SyncDialogType.Processing:
-      return 'sync.modal.message.progress';
-    case SyncDialogType.Offline:
-      return 'sync.modal.message.offline';
-    case SyncDialogType.Initialising:
-      return null;
-    case SyncDialogType.Successful:
-      return null;
-    case SyncDialogType.InitialisingFailed:
-      return null;
-    case SyncDialogType.Unsuccessful:
-      return null;
-    default:
-      return exhaustiveTypeCheck(props.dialogType);
-  }
-});
-
-const progressIcon = (model: string) => {
-  if (props.status?.syncedModels.includes(model)) {
-    return 'sync_success';
-  }
-  if (props.status?.currentModelName === model) {
-    return 'sync_in_progress';
-  }
-  return 'sync_no_progress';
-};
-
-const icon = computed<string>(() => {
-  switch (props.dialogType) {
-    case SyncDialogType.Requested:
-      return 'sync';
-    case SyncDialogType.Successful:
-      return 'sync_success';
-    case SyncDialogType.Unsuccessful:
-      return 'warning';
-    case SyncDialogType.InitialisingFailed:
-      return 'warning';
-    case SyncDialogType.Offline:
-      return 'cloud-offline';
-    default:
-      return '';
-  }
-});
-
-const iconColor = computed<IconColor>(() => {
-  switch (props.dialogType) {
-    case SyncDialogType.Requested:
-      return 'text';
-    case SyncDialogType.Successful:
-      return 'success';
-    case SyncDialogType.Unsuccessful:
-      return 'danger';
-    case SyncDialogType.InitialisingFailed:
-      return 'danger';
-    case SyncDialogType.Offline:
-      return 'warning';
-    default:
-      return 'text';
-  }
-});
-
-const isSyncRequestDialog = computed<boolean>(() => props.dialogType === SyncDialogType.Requested);
-
-const isSyncProcessingDialog = computed<boolean>(
+const infrastructureStore = useInfrastructureStore();
+const diagramStore = useDiagramStore();
+const showAll = ref<boolean>(false);
+const isEditing = computed<boolean>(
   () =>
-    props.dialogType === SyncDialogType.Processing ||
-    props.dialogType === SyncDialogType.Initialising
+    diagramStore.selectedToolItem?.category === props.category &&
+    diagramStore.selectedToolItem.toolType === ToolType.PickerTool
 );
-
-const isSyncSuccessfulDialog = computed<boolean>(
-  () => props.dialogType === SyncDialogType.Successful
-);
-
-const isSyncUnsuccessfulDialog = computed<boolean>(
-  () => props.dialogType === SyncDialogType.Unsuccessful
-);
-
-const isSyncFailedDialog = computed<boolean>(
-  () => props.dialogType === SyncDialogType.InitialisingFailed
-);
-
-const startDisabled = computed<boolean>(
-  () =>
-    appStore.hasBlockingTasks ||
-    props.status?.syncProgressStatus === MXSyncProgressStatus.Synchronizing
-);
-
-function start() {
-  const email = userDetails.value?.email;
-  if (!email) return;
-
-  productsStore.syncProduct({
-    productId: productsStore.activeProductId,
-    userId: email,
-    editorType: editorStore.editorType
-  });
-}
-
-watch(
-  () => connectionsStore.isOffline,
-  nowOffline => {
-    if (nowOffline)
-      eventService.emit(EventType.OpenDialog, {
-        dialogName: DialogNames.Sync,
-        options: {
-          props: {
-            dialogType: SyncDialogType.Offline
-          },
-          modal: true
-        }
-      });
-  }
-);
-</script>
-
-<style scoped>
-.sync-progress {
-  color: var(--font-disabled-color);
-  fill: var(--font-disabled-color);
-
-  li {
-    display: flex;
-    align-items: center;
-
-    .icon {
-     
-
- margin-right: var(--base-spacing-1);
-    }
-  }
-
-  .syncing {
-    color: var(--font-color);
-    fill: var(--font-color);
-  }
-
-  .synced {
-    color: var(--success);
-    fill: var(--success);
-  }
-}
-
-.unsuccessful {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-
-  .unsuccessful-message {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-
-    a {
-      color: var(--link-color);
-    }
-
-    p {
-      padding-right: var(--base-spacing-1);
-      margin: 0;
-    }
-  }
-
-  .failed-model {
-    display: flex;
-    align-items: center;
-    color: var(--danger);
-    fill: var(--danger);
-
-    p {
-      padding-left: var(--base-spacing-1);
-    }
-  }
-
-  .failed-initialized {
-    display: flex;
-    align-items: center;
-    color: var(--danger);
-    fill: var(--danger);
-
-    p {
-      padding-left: var(--base-spacing-1);
-      margin: 0;
-    }
-  }
-}
-</style>
-```
-
-In this updated code:
-1. The `.unsuccessful-message` class now has `flex-direction: column` and `align-items: center` to ensure the text and the link are displayed properly on separate lines but still centered.
-2. Adjustments have been made to the `p` elements within the `.unsuccessful-message` to ensure there is no extra margin that might break the lines.
-3. Updated the `message` in `computed` properties.
-
-This should align the elements correctly and keep the text and link properly formatted.
-
-
-
--------
-It looks like there is an extra message being displayed. To address this, we should examine the template and localization strings to ensure there is no duplicate content. Let's update your template and localization strings accordingly.
-
-Here's the updated template and localization:
-
-### Template (Sync.vue)
-```vue
-<template>
-  <app-dialog-container title-key="sync.modal.title" data-testid="dialog-sync">
-    <template #content>
-      <app-dialog-process-content-layout
-        v-if="isSyncProcessingDialog"
-        :header="t(header)"
-        :description-line1="message ? t(message) : message"
-      >
-        <template #extra-content>
-          <ul class="sync-progress lead dialog-content-message">
-            <li
-              v-for="(model, index) of status?.allModels"
-              :key="index"
-              :class="{
-                syncing: status?.currentModelName === model,
-                synced: status?.syncedModels.includes(model)
-              }"
-            >
-              <app-icon :name="progressIcon(model)" />
-              {{ model }}
-            </li>
-          </ul>
-        </template>
-      </app-dialog-process-content-layout>
-
-      <app-dialog-icon-content-layout
-        v-else
-        :icon="icon"
-        :icon-color="iconColor"
-        :header="t(header)"
-        :message-line1="message ? t(message) : message"
-      >
-        <template #extra-content>
-          <div v-if="isSyncUnsuccessfulDialog || isSyncFailedDialog" class="unsuccessful">
-            <div class="unsuccessful-message">
-              <p v-if="isSyncUnsuccessfulDialog" class="lead dialog-content-message">
-                {{ t('sync.modal.message.unsuccessful') }}
-              </p>
-              <div v-if="status?.currentModelName && isSyncFailedDialog" class="failed-initialized">
-                <p class="lead dialog-content-message">
-                  {{ t('sync.modal.message.modelFailed', { modelName: status.currentModelName }) }}
-                </p>
-              </div>
-              <div class="help-desk">
-                <p class="lead dialog-content-message">{{ t('sync.modal.message.contact') }}</p>
-                <a
-                  :href="t('common.link')"
-                  rel="noopener noreferrer"
-                  target="_blank"
-                  class="lead dialog-content-message"
-                >
-                  {{ t('common.helpSupport') }}
-                </a>
-              </div>
-            </div>
-          </div>
-          <div v-else-if="isSyncSuccessfulDialog">
-            <ul class="sync-progress lead dialog-content-message">
-              <li v-for="(model, index) of status?.syncedModels" :key="index" class="synced">
-                <app-icon name="sync_success" />
-                {{ model }}
-              </li>
-            </ul>
-          </div>
-        </template>
-      </app-dialog-icon-content-layout>
-    </template>
-
-    <template #button-row>
-      <app-button
-        data-testid="reject-sync"
-        :disabled="appStore.hasBlockingTasks"
-        :class="{ primary: !isSyncRequestDialog, secondary: isSyncRequestDialog }"
-        @click="emit('close')"
-        >{{ t('common.close') }}</app-button
-      >
-      <app-button
-        v-if="isSyncRequestDialog"
-        data-testid="accept-sync"
-        class="primary"
-        :disabled="startDisabled"
-        @click="start"
-        >{{ t('common.start') }}</app-button
-      >
-    </template>
-  </app-dialog-container>
-</template>
-
-<script setup lang="ts">
-import { watch, computed } from 'vue';
-import { PickupPaths, useI18n } from 'vue-i18n';
-import { exhaustiveTypeCheck } from '@ebitoolmx/predicates';
-import AppIcon from '@/components/common/icon/Icon.vue';
-import AppButton from '@/components/common/formElements/button/Button.vue';
-import AppDialogContainer from '@/components/common/dialog/layouts/DialogContainer.vue';
-import AppDialogIconContentLayout, {
-  IconColor
-} from '@/components/common/dialog/layouts/DialogIconContentLayout.vue';
-import AppDialogProcessContentLayout from '@/components/common/dialog/layouts/DialogProcessContentLayout.vue';
-import { SyncDialogType } from '@/typings/sync.js';
-import { DialogNames } from '@/typings/dialog.js';
-import { useAppStore } from '@/stores/app.js';
-import { useProductsStore } from '@/stores/products.js';
-import { useConnectionsStore } from '@/stores/connections.js';
-import { useEditorStore } from '@/stores/editor.js';
-import { eventService, EventType } from '@/services/event.js';
-import { LocaleMessage } from '@/locale/en.js';
-import { MXSyncProgressEvent, MXSyncProgressStatus } from '@ebitoolmx/gateway-types';
-import { useAuthService } from '@/auth/index.js';
-
-defineOptions({ name: 'Sync' });
-const props = defineProps<{
-  dialogType: SyncDialogType;
-  status?: MXSyncProgressEvent;
-}>();
-const emit = defineEmits(['close']);
-const appStore = useAppStore();
-const { userDetails } = useAuthService();
-const connectionsStore = useConnectionsStore();
-const productsStore = useProductsStore();
-const editorStore = useEditorStore();
-const { t } = useI18n();
-const header = computed<PickupPaths<LocaleMessage>>(() => {
-  switch (props.dialogType) {
-    case SyncDialogType.Requested:
-      return 'sync.modal.header.requested';
-    case SyncDialogType.Initialising:
-      return 'sync.modal.header.initialising';
-    case SyncDialogType.Processing:
-      return 'sync.modal.header.processing';
-    case SyncDialogType.Successful:
-      return 'sync.modal.header.successful';
-    case SyncDialogType.InitialisingFailed:
-      return 'sync.modal.header.initialisingFailed';
-    case SyncDialogType.Unsuccessful:
-      return 'sync.modal.header.unsuccessful';
-    case SyncDialogType.Offline:
-      return 'sync.modal.header.offline';
-    default:
-      return exhaustiveTypeCheck(props.dialogType);
-  }
-});
-const message = computed<PickupPaths<LocaleMessage> | null>(() => {
-  switch (props.dialogType) {
-    case SyncDialogType.Requested:
-      return 'sync.modal.message.requested';
-    case SyncDialogType.Processing:
-      return 'sync.modal.message.progress';
-    case SyncDialogType.Offline:
-      return 'sync.modal.message.offline';
-    case SyncDialogType.Initialising:
-      return null;
-    case SyncDialogType.Successful:
-      return null;
-    case SyncDialogType.InitialisingFailed:
-      return null;
-    case SyncDialogType.Unsuccessful:
-      return null;
-    default:
-      return exhaustiveTypeCheck(props.dialogType);
-  }
-});
-const progressIcon = (model: string) => {
-  if (props.status?.syncedModels.includes(model)) {
-    return 'sync_success';
-  }
-  if (props.status?.currentModelName === model) {
-    return 'sync_in_progress';
-  }
-  return 'sync_no_progress';
-};
-const icon = computed<string>(() => {
-  switch (props.dialogType) {
-    case SyncDialogType.Requested:
-      return 'sync';
-    case SyncDialogType.Successful:
-      return 'sync_success';
-    case SyncDialogType.Unsuccessful:
-      return 'warning';
-    case SyncDialogType.InitialisingFailed:
-      return 'warning';
-    case SyncDialogType.Offline:
-      return 'cloud-offline';
-    default:
-      return '';
-  }
-});
-const iconColor = computed<IconColor>(() => {
-  switch (props.dialogType) {
-    case SyncDialogType.Requested:
-      return 'text';
-    case SyncDialogType.Successful:
-      return 'success';
-    case SyncDialogType.Unsuccessful:
-      return 'danger';
-    case SyncDialogType.InitialisingFailed:
-      return 'danger';
-    case SyncDialogType.Offline:
-      return 'warning';
-    default:
-      return 'text';
-  }
-});
-const isSyncRequestDialog = computed<boolean>(() => props.dialogType === SyncDialogType.Requested);
-const isSyncProcessingDialog = computed<boolean>(
-  () =>
-    props.dialogType === SyncDialogType.Processing ||
-    props.dialogType === SyncDialogType.Initialising
-);
-const isSyncSuccessfulDialog = computed<boolean>(
-  () => props.dialogType === SyncDialogType.Successful
-);
-const isSyncUnsuccessfulDialog = computed<boolean>(
-  () => props.dialogType === SyncDialogType.Unsuccessful
-);
-const isSyncFailedDialog = computed<boolean>(
-  () => props.dialogType === SyncDialogType.InitialisingFailed
-);
-const startDisabled = computed<boolean>(
-  () =>
-    appStore.hasBlockingTasks ||
-    props.status?.syncProgressStatus === MXSyncProgressStatus.Synchronizing
-);
-function start() {
-  const email = userDetails.value?.email;
-  if (!email) return;
-  productsStore.syncProduct({
-    productId: productsStore.activeProductId,
-    userId: email,
-    editorType: editorStore.editorType
-  });
-}
-watch(
-  () => connectionsStore.isOffline,
-  nowOffline => {
-    if (nowOffline)
-      eventService.emit(EventType.OpenDialog, {
-        dialogName: DialogNames.Sync,
-        options: {
-          props: {
-            dialogType: SyncDialogType.Offline
-          },
-          modal: true
-        }
-      });
-  }
-);
-</script>
-
-<style scoped>
-.sync-progress {
-  color: var(--font-disabled-color);
-  fill: var(--font-disabled-color);
-
-  li {
-    display: flex;
-    align-items: center;
-
-    .icon {
-      margin-right: var(--base-spacing-1);
-    }
-  }
-
-  .syncing {
-    color: var(--font-color);
-    fill: var(--font-color);
-  }
-
-  .synced {
-    color: var(--success);
-    fill: var(--success);
-  }
-}
-
-.unsuccess
-
-ful {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-
-  .unsuccessful-message {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    text-align: center;
-
-    a {
-      color: var(--link-color);
-    }
-
-    p {
-      padding-right: var(--base-spacing-1);
-    }
-  }
-
-  .failed-model {
-    display: flex;
-    align-items: center;
-    color: var(--danger);
-    fill: var(--danger);
-
-    p {
-      padding-left: var(--base-spacing-1);
-    }
-  }
-
-  .failed-initialized {
-    display: block;
-    align-items: center;
-    p {
-      padding-left: var(--base-spacing-1);
-    }
-  }
-
-  .help-desk {
-    display: flex;
-    flex-direction: row;
-    justify-content: center;
-    align-items: center;
-
-    p {
-      margin-right: var(--base-spacing-1);
-    }
-
-    a {
-      color: var(--link-color);
-    }
-  }
-}
-</style>
-```
-
-### Localization (en.ts)
-```typescript
-export default {
-  sync: {
-    modal: {
-      title: 'Synchronisation',
-      header: {
-        requested: 'Synchronisation Requested',
-        initialising: 'Initialising Synchronisation',
-        processing: 'Processing Synchronisation',
-        successful: 'Synchronisation Successful',
-        initialisingFailed: 'Initialisation Failed',
-        unsuccessful: 'Synchronisation Unsuccessful',
-        offline: 'Network Offline'
-      },
-      message: {
-        requested: 'Do you wish to start synchronisation?',
-        progress: 'Progress',
-        contact: 'If the issue remains, contact the',
-        unsuccessful: 'A model failed to synchronise.',
-        offline:
-          'The network connection is lost. Your work will remain.\nPlease check your network connection to be able to continue working.',
-        modelFailed: 'The {modelName} model couldn’t be initialised.'
+const groupedTrackItems = computed<Array<Array<[PropertyValue, number]>>(() => {
+  const groupedByMileage = props.value.reduce(
+    (acc: Record<string, Array<[PropertyValue, number]>>, item: PropertyValue, i: number) => {
+      const domainObject = infrastructureStore.getTrackItem(item.objectIdentifier.id);
+      const mileage = domainObject?.domain.position?.mileage;
+      if (mileage && !acc[mileage]) {
+        acc[mileage] = [];
       }
-    }
-  },
-  common: {
-    close: 'Close',
-    helpSupport: 'help desk',
-    link: 'https://helpdesk.example.com'
-  }
+      if (mileage && acc[mileage]) {
+        acc[mileage].push([item, i + 1]);
+      }
+      return acc;
+    },
+    {}
+  );
+  const formattedArray = Object.values(groupedByMileage);
+  return formattedArray;
+});
+const currentIds = computed<string[]>(() => props.value.map(p => extractXmiId(p.object.reference)));
+function getNodesToHighlight(propValues: PropertyValue[]): string[] {
+  const nodes = propValues.map(value => value.objectIdentifier.id);
+  return nodes.filter(isNotEmpty);
 }
-```
-
-This update ensures the "contact" message and the "help desk" link are always together and aligned properly. It also adds the necessary styles to ensure proper alignment and display. The extra message "The model couldn’t be initialised." seems to be coming from the `sync.modal.message.unsuccessful` localization string. Make sure this string is only used where appropriate.
-
-
-------
-To ensure that the contact message and the help desk link always appear together on the same line, you can adjust the structure of the template and CSS slightly. The goal is to group the contact message and the help desk link within the same parent container.
-
-Here is the updated code for Sync.vue:
-
-### Sync.vue
-
-```vue
-<template>
-  <app-dialog-container title-key="sync.modal.title" data-testid="dialog-sync">
-    <template #content>
-      <app-dialog-process-content-layout
-        v-if="isSyncProcessingDialog"
-        :header="t(header)"
-        :description-line1="message ? t(message) : message"
-      >
-        <template #extra-content>
-          <ul class="sync-progress lead dialog-content-message">
-            <li
-              v-for="(model, index) of status?.allModels"
-              :key="index"
-              :class="{
-                syncing: status?.currentModelName === model,
-                synced: status?.syncedModels.includes(model)
-              }"
-            >
-              <app-icon :name="progressIcon(model)" />
-              {{ model }}
-            </li>
-          </ul>
-        </template>
-      </app-dialog-process-content-layout>
-
-      <app-dialog-icon-content-layout
-        v-else
-        :icon="icon"
-        :icon-color="iconColor"
-        :header="t(header)"
-        :message-line1="message ? t(message) : message"
-      >
-        <template #extra-content>
-          <div v-if="isSyncUnsuccessfulDialog || isSyncFailedDialog" class="unsuccessful">
-            <div class="unsuccessful-message">
-              <p v-if="isSyncUnsuccessfulDialog" class="lead dialog-content-message">
-                {{ t('sync.modal.message.unsuccessful') }}
-              </p>
-
-              <div v-if="status?.currentModelName && isSyncUnsuccessfulDialog" class="failed-model">
-                <app-icon name="sync_error" />
-                <p class="lead dialog-content-message">{{ status.currentModelName }}</p>
-              </div>
-
-              <div v-if="status?.currentModelName && isSyncFailedDialog" class="failed-initialized">
-                <p class="lead dialog-content-message">
-                  {{ t('sync.modal.message.modelFailed', { modelName: status.currentModelName }) }}
-                </p>
-              </div>
-
-              <div class="help-desk">
-                <p class="lead dialog-content-message">
-                  {{ t('sync.modal.message.contact') }}
-                  <a
-                    :href="t('common.link')"
-                    rel="noopener noreferrer"
-                    target="_blank"
-                    class="lead dialog-content-message"
-                  >
-                    {{ t('common.helpSupport') }}
-                  </a>
-                </p>
-              </div>
-            </div>
-          </div>
-          <div v-else-if="isSyncSuccessfulDialog">
-            <ul class="sync-progress lead dialog-content-message">
-              <li v-for="(model, index) of status?.syncedModels" :key="index" class="synced">
-                <app-icon name="sync_success" />
-                {{ model }}
-              </li>
-            </ul>
-          </div>
-        </template>
-      </app-dialog-icon-content-layout>
-    </template>
-
-    <template #button-row>
-      <app-button
-        data-testid="reject-sync"
-        :disabled="appStore.hasBlockingTasks"
-        :class="{ primary: !isSyncRequestDialog, secondary: isSyncRequestDialog }"
-        @click="emit('close')"
-        >{{ t('common.close') }}</app-button
-      >
-      <app-button
-        v-if="isSyncRequestDialog"
-        data-testid="accept-sync"
-        class="primary"
-        :disabled="startDisabled"
-        @click="start"
-        >{{ t('common.start') }}</app-button
-      >
-    </template>
-  </app-dialog-container>
-</template>
-
-<script setup lang="ts">
-import { watch, computed } from 'vue';
-import { PickupPaths, useI18n } from 'vue-i18n';
-
-import { exhaustiveTypeCheck } from '@ebitoolmx/predicates';
-
-import AppIcon from '@/components/common/icon/Icon.vue';
-import AppButton from '@/components/common/formElements/button/Button.vue';
-import AppDialogContainer from '@/components/common/dialog/layouts/DialogContainer.vue';
-import AppDialogIconContentLayout, {
-  IconColor
-} from '@/components/common/dialog/layouts/DialogIconContentLayout.vue';
-import AppDialogProcessContentLayout from '@/components/common/dialog/layouts/DialogProcessContentLayout.vue';
-
-import { SyncDialogType } from '@/typings/sync.js';
-import { DialogNames } from '@/typings/dialog.js';
-
-import { useAppStore } from '@/stores/app.js';
-import { useProductsStore } from '@/stores/products.js';
-import { useConnectionsStore } from '@/stores/connections.js';
-import { useEditorStore } from '@/stores/editor.js';
-
-import { eventService, EventType } from '@/services/event.js';
-
-import { LocaleMessage } from '@/locale/en.js';
-import { MXSyncProgressEvent, MXSyncProgressStatus } from '@ebitoolmx/gateway-types';
-import { useAuthService } from '@/auth/index.js';
-
-defineOptions({ name: 'Sync' });
-const props = defineProps<{
-  dialogType: SyncDialogType;
-  status?: MXSyncProgressEvent;
-}>();
-
-const emit = defineEmits(['close']);
-const appStore = useAppStore();
-const { userDetails } = useAuthService();
-const connectionsStore = useConnectionsStore();
-const productsStore = useProductsStore();
-const editorStore = useEditorStore();
-const { t } = useI18n();
-
-const header = computed<PickupPaths<LocaleMessage>>(() => {
-  switch (props.dialogType) {
-    case SyncDialogType.Requested:
-      return 'sync.modal.header.requested';
-    case SyncDialogType.Initialising:
-      return 'sync.modal.header.initialising';
-    case SyncDialogType.Processing:
-      return 'sync.modal.header.processing';
-    case SyncDialogType.Successful:
-      return 'sync.modal.header.successful';
-    case SyncDialogType.InitialisingFailed:
-      return 'sync.modal.header.initialisingFailed';
-    case SyncDialogType.Unsuccessful:
-      return 'sync.modal.header.unsuccessful';
-    case SyncDialogType.Offline:
-      return 'sync.modal.header.offline';
-    default:
-      return exhaustiveTypeCheck(props.dialogType);
+function isAllValuesHighlighted(): boolean {
+  if (editorStore.highlighted.isEmpty()) return false;
+  const nodesToHighlight = getNodesToHighlight(props.value).filter(Boolean);
+  // Returns true if all or more values are highlighted.
+  // selecting an area group should indicate that all items are highlighted.
+  // Even though the items belonging to the areas inside the group isn’t directly connected to the area group
+  return nodesToHighlight.every(node => editorStore.highlighted.expandedIds.includes(node));
+}
+function isHighlighted(id: PropertyValue): boolean {
+  const [nodeToHighlight] = getNodesToHighlight([id]);
+  return editorStore.highlighted.includes(nodeToHighlight);
+}
+const highlight = (propValues: PropertyValue[]): void => {
+  const nodesToHighlight = getNodesToHighlight(propValues);
+  editorStore.toggleHighlighted(new PlainHighlight(nodesToHighlight));
+  eventService.emit(EventType.CenterHighlighted);
+  for (const propValue of propValues) {
+    const layer = propValue.object.eClass;
+    diagramStore.setLayerVisibility([{ layer, visible: true }]);
   }
-});
-
-const message = computed<PickupPaths<LocaleMessage> | null>(() => {
-  switch (props.dialogType) {
-    case SyncDialogType.Requested:
-      return 'sync.modal.message.requested';
-    case SyncDialogType.Processing:
-      return 'sync.modal.message.progress';
-    case SyncDialogType.Offline:
-      return 'sync.modal.message.offline';
-    case SyncDialogType.Initialising:
-      return null;
-    case SyncDialogType.Successful:
-      return null;
-    case SyncDialogType.InitialisingFailed:
-      return 'sync.modal.message.modelFailed';
-    case SyncDialogType.Unsuccessful:
-      return 'sync.modal.message.unsuccessful';
-    default:
-      return exhaustiveTypeCheck(props.dialogType);
-  }
-});
-
-const progressIcon = (model: string) => {
-  if (props.status?.syncedModels.includes(model)) {
-    return 'sync_success';
-  }
-  if (props.status?.currentModelName === model) {
-    return 'sync_in_progress';
-  }
-  return 'sync_no_progress';
 };
-
-const icon = computed<string>(() => {
-  switch (props.dialogType) {
-    case SyncDialogType.Requested:
-      return 'sync';
-    case SyncDialogType.Successful:
-      return 'sync_success';
-    case SyncDialogType.Unsuccessful:
-      return 'warning';
-    case SyncDialogType.InitialisingFailed:
-      return 'warning';
-    case SyncDialogType.Offline:
-      return 'cloud-offline';
-    default:
-      return '';
+const deleteSelected = (xmiId: XmiId): void => {
+  emit(
+    'change',
+    currentIds.value.filter(id => id !== xmiId)
+  );
+  editorStore.setHighlighted(
+    new PlainHighlight(editorStore.highlighted.filter((id: string) => id !== xmiId))
+  );
+  const newSelection = editorStore.selected.ids.filter(id =>
+    isMXObjectIdentifier(id) ? id.id : id !== xmiId
+  );
+  editorStore.setSelected(new PlainSelection(newSelection));
+};
+const addSelected = (xmiId: XmiId): void => {
+  editorStore.setHighlighted(new PlainHighlight([...editorStore.highlighted.expandedIds, xmiId]));
+  emit('change', [...currentIds.value, xmiId]);
+};
+const addValue = (propValue: PropertyValue): void => {
+  const includeXmiId = extractXmiId(propValue.object.reference);
+  if (!currentIds.value.includes(includeXmiId)) addSelected(includeXmiId);
+};
+const deleteValue = (propValue: PropertyValue): void => {
+  const excludeXmiId = extractXmiId(propValue.object.reference);
+  deleteSelected(excludeXmiId);
+  setTimeout(() => {
+    showAll.value = true; // Ensure dropdown remains open
+  }, 0);
+};
+const toggleEdit = (): void => {
+  if (diagramStore.selectedToolItem?.category !== props.category) {
+    diagramStore.selectToolItem({
+      category: props.category as ToolItemCategory,
+      toolType: ToolType.PickerTool,
+      toolName: 'MultiReferencePickerTool'
+    });
+    showAll.value = true;
+    if (!isAllValuesHighlighted()) {
+      highlight(props.value);
+    }
+    return;
+  }
+  diagramStore.selectToolItem(null);
+};
+const isEmpty = (): boolean => currentIds.value.length === 0;
+const toggleShowAll = (): void => {
+  showAll.value = !showAll.value;
+};
+const isSplitViewSelected = (): boolean => editorStore.isSplitViewShown(SplitView.Positions);
+const togglePositionsView = (): void => {
+  editorStore.toggleSplitView(SplitView.Positions);
+};
+const handleSidePanelToggle = (): void => {
+  if (isEditing.value) {
+    toggleEdit();
+  }
+};
+const selectItemGroup = (propValue: PropertyValue): void => {
+  const selection = new PlainSelection([propValue.objectIdentifier]);
+  editorStore.setSelected(selection);
+  const nodesToHighlight = getNodesToHighlight([propValue]);
+  editorStore.setHighlighted(new PlainHighlight(nodesToHighlight));
+  if (isHighlighted(propValue)) {
+    editorStore.setHighlighted(
+      new PlainHighlight(
+        editorStore.highlighted.filter((id: string) => id !== propValue.objectIdentifier.id)
+      )
+    );
+  }
+};
+onMounted(() => eventService.on(EventType.ToggleSidePanel, handleSidePanelToggle));
+onBeforeUnmount(() => {
+  if (diagramStore.selectedToolItem?.toolType === ToolType.PickerTool) {
+    diagramStore.selectToolItem(null);
   }
 });
-
-const iconColor = computed<IconColor>(() => {
-  switch (props.dialogType) {
-    case SyncDialogType.Requested:
-      return 'text';
-    case SyncDialogType.Successful:
-      return 'success';
-    case SyncDialogType.Unsuccessful:
-      return 'danger';
-    case SyncDialogType.InitialisingFailed:
-      return 'danger';
-    case SyncDialogType.Offline:
-      return 'warning';
-    default:
-      return 'text';
-  }
-});
-
-const isSyncRequestDialog = computed<boolean>(() => props.dialogType === SyncDialogType.Requested);
-
-const isSyncProcessingDialog = computed<boolean>(
-  () =>
-    props.dialogType === SyncDialogType.Processing ||
-    props.dialogType === SyncDialogType.Initialising
-);
-
-const isSyncSuccessfulDialog = computed<boolean>(
-  () => props.dialogType === SyncDialogType.Successful
-);
-
-const isSyncUnsuccessfulDialog = computed<boolean>(
-  () => props.dialogType === SyncDialogType.Unsuccessful
-);
-
-const isSyncFailedDialog = computed<boolean>(
-  () => props.dialogType === SyncDialogType.InitialisingFailed
-);
-
-const startDisabled = computed<boolean>(
-  () =>
-    appStore.hasBlockingTasks ||
-    props.status?.syncProgressStatus === MXSyncProgressStatus.Synchronizing
-);
-
-function start() {
-  const email = userDetails.value?.email;
-  if (!email) return;
-
-  productsStore.syncProduct({
-    productId: productsStore.activeProductId,
-    userId: email,
-    editorType: editorStore.editorType
-  });
-}
-
-watch(
-  () => connectionsStore.isOffline,
-  nowOffline => {
-    if (nowOffline)
-      eventService.emit(EventType.OpenDialog, {
-        dialogName: DialogNames.Sync,
-        options: {
-          props: {
-            dialogType: SyncDialogType.Offline
-          },
-          modal: true
-        }
-      });
-  }
-);
 </script>
 
 <style scoped>
-.sync-progress {
-  color: var(--font-disabled-color);
-  fill: var(--font-disabled-color);
-
- 
-
- li {
-    display: flex;
-    align-items: center;
-
-    .icon {
-      margin-right: var(--base-spacing-1);
-    }
-  }
-
-  .syncing {
-    color: var(--font-color);
-    fill: var(--font-color);
-  }
-
-  .synced {
-    color: var(--success);
-    fill: var(--success);
-  }
-}
-
-.unsuccessful {
+.button-row {
   display: flex;
-  flex-direction: column;
-  align-items: center;
-
-  .unsuccessful-message {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    text-align: center;
-
-    a {
-      color: var(--link-color);
-    }
-
-    p {
-      padding-right: var(--base-spacing-1);
-    }
-  }
-
-  .failed-model {
-    display: flex;
-    align-items: center;
-    color: var(--danger);
-    fill: var(--danger);
-
-    p {
-      padding-left: var(--base-spacing-1);
-    }
-  }
-
-  .failed-initialized {
-    display: block;
-    align-items: center;
-    p {
-      padding-left: var(--base-spacing-1);
-    }
-  }
-
-  .help-desk {
-    display: flex;
-    align-items: center;
-    margin-top: var(--base-spacing-2);
-
-    a {
-      color: var(--link-color);
-    }
-
-    p {
-      padding-right: var(--base-spacing-1);
-    }
+  padding-bottom: var(--base-spacing-2);
+  & > * {
+    margin-right: var(--base-spacing-2);
   }
 }
-</style>
-```
-
-### Explanation:
-1. **Template Changes**: The contact help desk message and link are now wrapped in a single `<div class="help-desk">` container to ensure they stay together.
-2. **CSS Adjustments**: The `.help-desk` class is styled to display the content inline and ensure proper alignment and spacing.
-
-This should ensure that the contact message and the help desk link appear together on the same line.
-
-
------
-
-To ensure that the contact message and the help desk link always appear together on the same line, you can adjust the structure of the template and CSS slightly. The goal is to group the contact message and the help desk link within the same parent container.
-
-Here is the updated code for Sync.vue:
-
-### Sync.vue
-
-```vue
-<template>
-  <app-dialog-container title-key="sync.modal.title" data-testid="dialog-sync">
-    <template #content>
-      <app-dialog-process-content-layout
-        v-if="isSyncProcessingDialog"
-        :header="t(header)"
-        :description-line1="message ? t(message) : message"
-      >
-        <template #extra-content>
-          <ul class="sync-progress lead dialog-content-message">
-            <li
-              v-for="(model, index) of status?.allModels"
-              :key="index"
-              :class="{
-                syncing: status?.currentModelName === model,
-                synced: status?.syncedModels.includes(model)
-              }"
-            >
-              <app-icon :name="progressIcon(model)" />
-              {{ model }}
-            </li>
-          </ul>
-        </template>
-      </app-dialog-process-content-layout>
-
-      <app-dialog-icon-content-layout
-        v-else
-        :icon="icon"
-        :icon-color="iconColor"
-        :header="t(header)"
-        :message-line1="message ? t(message) : message"
-      >
-        <template #extra-content>
-          <div v-if="isSyncUnsuccessfulDialog || isSyncFailedDialog" class="unsuccessful">
-            <div class="unsuccessful-message">
-              <p v-if="isSyncUnsuccessfulDialog" class="lead dialog-content-message">
-                {{ t('sync.modal.message.unsuccessful') }}
-              </p>
-
-              <div v-if="status?.currentModelName && isSyncUnsuccessfulDialog" class="failed-model">
-                <app-icon name="sync_error" />
-                <p class="lead dialog-content-message">{{ status.currentModelName }}</p>
-              </div>
-
-              <div v-if="status?.currentModelName && isSyncFailedDialog" class="failed-initialized">
-                <p class="lead dialog-content-message">
-                  {{ t('sync.modal.message.modelFailed', { modelName: status.currentModelName }) }}
-                </p>
-              </div>
-
-              <div class="help-desk">
-                <p class="lead dialog-content-message">
-                  {{ t('sync.modal.message.contact') }}
-                  <a
-                    :href="t('common.link')"
-                    rel="noopener noreferrer"
-                    target="_blank"
-                    class="lead dialog-content-message"
-                  >
-                    {{ t('common.helpSupport') }}
-                  </a>
-                </p>
-              </div>
-            </div>
-          </div>
-          <div v-else-if="isSyncSuccessfulDialog">
-            <ul class="sync-progress lead dialog-content-message">
-              <li v-for="(model, index) of status?.syncedModels" :key="index" class="synced">
-                <app-icon name="sync_success" />
-                {{ model }}
-              </li>
-            </ul>
-          </div>
-        </template>
-      </app-dialog-icon-content-layout>
-    </template>
-
-    <template #button-row>
-      <app-button
-        data-testid="reject-sync"
-        :disabled="appStore.hasBlockingTasks"
-        :class="{ primary: !isSyncRequestDialog, secondary: isSyncRequestDialog }"
-        @click="emit('close')"
-        >{{ t('common.close') }}</app-button
-      >
-      <app-button
-        v-if="isSyncRequestDialog"
-        data-testid="accept-sync"
-        class="primary"
-        :disabled="startDisabled"
-        @click="start"
-        >{{ t('common.start') }}</app-button
-      >
-    </template>
-  </app-dialog-container>
-</template>
-
-<script setup lang="ts">
-import { watch, computed } from 'vue';
-import { PickupPaths, useI18n } from 'vue-i18n';
-
-import { exhaustiveTypeCheck } from '@ebitoolmx/predicates';
-
-import AppIcon from '@/components/common/icon/Icon.vue';
-import AppButton from '@/components/common/formElements/button/Button.vue';
-import AppDialogContainer from '@/components/common/dialog/layouts/DialogContainer.vue';
-import AppDialogIconContentLayout, {
-  IconColor
-} from '@/components/common/dialog/layouts/DialogIconContentLayout.vue';
-import AppDialogProcessContentLayout from '@/components/common/dialog/layouts/DialogProcessContentLayout.vue';
-
-import { SyncDialogType } from '@/typings/sync.js';
-import { DialogNames } from '@/typings/dialog.js';
-
-import { useAppStore } from '@/stores/app.js';
-import { useProductsStore } from '@/stores/products.js';
-import { useConnectionsStore } from '@/stores/connections.js';
-import { useEditorStore } from '@/stores/editor.js';
-
-import { eventService, EventType } from '@/services/event.js';
-
-import { LocaleMessage } from '@/locale/en.js';
-import { MXSyncProgressEvent, MXSyncProgressStatus } from '@ebitoolmx/gateway-types';
-import { useAuthService } from '@/auth/index.js';
-
-defineOptions({ name: 'Sync' });
-const props = defineProps<{
-  dialogType: SyncDialogType;
-  status?: MXSyncProgressEvent;
-}>();
-
-const emit = defineEmits(['close']);
-const appStore = useAppStore();
-const { userDetails } = useAuthService();
-const connectionsStore = useConnectionsStore();
-const productsStore = useProductsStore();
-const editorStore = useEditorStore();
-const { t } = useI18n();
-
-const header = computed<PickupPaths<LocaleMessage>>(() => {
-  switch (props.dialogType) {
-    case SyncDialogType.Requested:
-      return 'sync.modal.header.requested';
-    case SyncDialogType.Initialising:
-      return 'sync.modal.header.initialising';
-    case SyncDialogType.Processing:
-      return 'sync.modal.header.processing';
-    case SyncDialogType.Successful:
-      return 'sync.modal.header.successful';
-    case SyncDialogType.InitialisingFailed:
-      return 'sync.modal.header.initialisingFailed';
-    case SyncDialogType.Unsuccessful:
-      return 'sync.modal.header.unsuccessful';
-    case SyncDialogType.Offline:
-      return 'sync.modal.header.offline';
-    default:
-      return exhaustiveTypeCheck(props.dialogType);
-  }
-});
-
-const message = computed<PickupPaths<LocaleMessage> | null>(() => {
-  switch (props.dialogType) {
-    case SyncDialogType.Requested:
-      return 'sync.modal.message.requested';
-    case SyncDialogType.Processing:
-      return 'sync.modal.message.progress';
-    case SyncDialogType.Offline:
-      return 'sync.modal.message.offline';
-    case SyncDialogType.Initialising:
-      return null;
-    case SyncDialogType.Successful:
-      return null;
-    case SyncDialogType.InitialisingFailed:
-      return 'sync.modal.message.modelFailed';
-    case SyncDialogType.Unsuccessful:
-      return 'sync.modal.message.unsuccessful';
-    default:
-      return exhaustiveTypeCheck(props.dialogType);
-  }
-});
-
-const progressIcon = (model: string) => {
-  if (props.status?.syncedModels.includes(model)) {
-    return 'sync_success';
-  }
-  if (props.status?.currentModelName === model) {
-    return 'sync_in_progress';
-  }
-  return 'sync_no_progress';
-};
-
-const icon = computed<string>(() => {
-  switch (props.dialogType) {
-    case SyncDialogType.Requested:
-      return 'sync';
-    case SyncDialogType.Successful:
-      return 'sync_success';
-    case SyncDialogType.Unsuccessful:
-      return 'warning';
-    case SyncDialogType.InitialisingFailed:
-      return 'warning';
-    case SyncDialogType.Offline:
-      return 'cloud-offline';
-    default:
-      return '';
-  }
-});
-
-const iconColor = computed<IconColor>(() => {
-  switch (props.dialogType) {
-    case SyncDialogType.Requested:
-      return 'text';
-    case SyncDialogType.Successful:
-      return 'success';
-    case SyncDialogType.Unsuccessful:
-      return 'danger';
-    case SyncDialogType.InitialisingFailed:
-      return 'danger';
-    case SyncDialogType.Offline:
-      return 'warning';
-    default:
-      return 'text';
-  }
-});
-
-const isSyncRequestDialog = computed<boolean>(() => props.dialogType === SyncDialogType.Requested);
-
-const isSyncProcessingDialog = computed<boolean>(
-  () =>
-    props.dialogType === SyncDialogType.Processing ||
-    props.dialogType === SyncDialogType.Initialising
-);
-
-const isSyncSuccessfulDialog = computed<boolean>(
-  () => props.dialogType === SyncDialogType.Successful
-);
-
-const isSyncUnsuccessfulDialog = computed<boolean>(
-  () => props.dialogType === SyncDialogType.Unsuccessful
-);
-
-const isSyncFailedDialog = computed<boolean>(
-  () => props.dialogType === SyncDialogType.InitialisingFailed
-);
-
-const startDisabled = computed<boolean>(
-  () =>
-    appStore.hasBlockingTasks ||
-    props.status?.syncProgressStatus === MXSyncProgressStatus.Synchronizing
-);
-
-function start() {
-  const email = userDetails.value?.email;
-  if (!email) return;
-
-  productsStore.syncProduct({
-    productId: productsStore.activeProductId,
-    userId: email,
-    editorType: editorStore.editorType
-  });
+.element {
+  margin-top: var(--base-spacing-2);
 }
-
-watch(
-  () => connectionsStore.isOffline,
-  nowOffline => {
-    if (nowOffline)
-      eventService.emit(EventType.OpenDialog, {
-        dialogName: DialogNames.Sync,
-        options: {
-          props: {
-            dialogType: SyncDialogType.Offline
-          },
-          modal: true
-        }
-      });
-  }
-);
-</script>
-
-<style scoped>
-.sync-progress {
-  color: var(--font-disabled-color);
-  fill: var(--font-disabled-color);
-
-  li {
-    display: flex;
-    align-items: center;
-
-    .icon {
-      margin-right: var(--base-spacing-1);
-    }
-  }
-
-  .syncing {
-    color: var(--font-color);
-    fill: var(--font-color);
-  }
-
-  .synced {
-    color: var(--success);
-    fill: var(--success);
-  }
-}
-
-.unsuccessful {
+.label-row-end {
+  flex-grow: 1;
   display: flex;
-  flex-direction: column;
-  align-items: center;
-
-  .unsuccessful-message {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    text-align: center;
-
-    a {
-      color: var(--link-color);
-    }
-
-    p {
-      padding-right: var(--base-spacing-1);
-    }
-  }
-
-  .failed-model {
-    display: flex;
-    align-items: center;
-    color: var(--danger);
-    fill: var(--danger);
-
-    p {
-      padding-left: var(--base-spacing-1);
-    }
-  }
-
-  .failed-initialized {
-    display: block;
-    align-items: center;
-    p {
-      padding-left: var(--base-spacing-1);
-    }
-  }
-
-  .help-desk {
-    display: flex;
-    align-items: center;
-    margin-top: var(--base-spacing-2);
-
-    a {
-      color: var(--link-color);
-    }
-
-    p {
-      padding-right: var(--base-spacing-1);
-    }
+  justify-content: flex-end;
+  & svg {
+    width: 2em;
+    height: 2em;
   }
 }
-</style>
-```
+.inline {
+  width: fit-content;
+}
+.prop-values {
+  display: grid;
+  grid-template-columns: [order] 2em [handle] 3em [value] auto;
+  column-gap: 1em;
+  margin-top: 1.5em;
+}
+.prop-value-group {
+  display: grid;
+  grid-column: 1 / span 3;
+  grid-template-columns: subgrid;
+}
+.handle {
+  grid-column: handle;
+}
+.multiple {
+  & .handle {
+    border-right: 1px solid var(--track-item-order-group-line-color);
+  }
+  &:hover {
+    background: var(--dropdown-item-hover-color);
+    & .value {
+      background: var(--dropdown-item-hover-color);
+    }
+    & .handle {
+      border-right: 1px solid var(--track-item-order-group-line-hover);
+    }
+  }
+  /* Used to make sure borders aren't extending to the edge of the groups */
+  &::before {
+    content:=With these updates, the `handleDelete` method should correctly handle the deletion of items and ensure the dropdown remains open. The main change is ensuring that the `@delete` event in `SearchProperties.vue` correctly calls `handleDelete` and that `setTimeout` is used to ensure the dropdown stays open after the deletion event.
 
-### Explanation:
-1. **Template Changes**: The contact help desk message and link are now wrapped in a single `<div class="help-desk">` container to ensure they stay together.
-2. **CSS Adjustments**: The `.help-desk` class is styled to display the content inline and ensure proper alignment and spacing.
-
-This should ensure that the contact message and the help desk link appear together on the same line.
+Let me know if this resolves the issue or if further adjustments are needed!
