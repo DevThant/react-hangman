@@ -1,3 +1,133 @@
+Based on the provided files, `TrackItemProperty.vue` and `SearchProperties.vue`, it seems like the deselection and deletion of items involve several stores and services. Let's track how these components manage values and highlight changes to understand how to implement the task of removing items from the track itself.
+
+### Key Points in `TrackItemProperty.vue`:
+
+- **Method `deleteValue`**: This method currently removes items from the highlight but does not delete them from the track.
+- **Method `deleteSelected`**: This updates the selection and highlight state in the editor store.
+
+### Key Points in `SearchProperties.vue`:
+
+- **Method `handleDelete`**: This method is responsible for handling the delete action from the dropdown. It calls the `delete` event, which is handled in `TrackItemProperty.vue`.
+
+### Analysis of the Deletion Flow:
+
+1. **Initiation of Deletion**:
+   - User clicks the 'x' icon in `SearchProperties.vue`, triggering `handleDelete`.
+   - `handleDelete` emits the `delete` event.
+
+2. **Handling of Delete Event**:
+   - In `TrackItemProperty.vue`, the `deleteValue` method is triggered by the `delete` event.
+   - `deleteValue` calls `deleteSelected` to update the editor store state.
+
+### Implementation Plan:
+
+1. **Update `TrackItemProperty.vue`**:
+   - Modify `deleteValue` to call a method in `infrastructureStore` that handles the removal of the item from the track.
+
+2. **Add a New Method in `infrastructureStore`**:
+   - Create a method in `infrastructureStore` to handle the removal of track items.
+
+3. **Ensure Synchronization with GoJS Diagram**:
+   - Ensure that the item is removed from both the store and the GoJS diagram.
+
+### Step-by-Step Implementation:
+
+#### Step 1: Update `TrackItemProperty.vue`
+
+```vue
+<script setup lang="ts">
+import { computed, ref } from 'vue';
+import { extractXmiId } from '@ebitoolmx/eclipse-types';
+import { useEditorStore } from '@/stores/editor.js';
+import { useInfrastructureStore } from '@/stores/infrastructure.js';
+import { useProductsStore } from '@/stores/products.js';
+
+const editorStore = useEditorStore();
+const infrastructureStore = useInfrastructureStore();
+const productsStore = useProductsStore();
+
+const deleteValue = async (propValue: PropertyValue): Promise<void> => {
+  const excludeXmiId = extractXmiId(propValue.object.reference);
+  deleteSelected(excludeXmiId);
+
+  try {
+    await infrastructureStore.deleteTrackItem({
+      productId: productsStore.activeProductId,
+      xmiIds: [excludeXmiId]
+    });
+  } catch (error) {
+    console.error('Failed to delete track item:', error);
+  }
+
+  setTimeout(() => {
+    showAll.value = true; // Ensure dropdown remains open
+  }, 0);
+};
+
+// Existing setup code...
+</script>
+```
+
+#### Step 2: Add Method in `infrastructureStore`
+
+In `infrastructure.ts`, add the following method:
+
+```typescript
+export const useInfrastructureStore = defineStore('infrastructure', () => {
+  // Existing state and methods...
+
+  const deleteTrackItem = async ({
+    productId,
+    xmiIds
+  }: DeleteDomainObjectPayload): Promise<void> => {
+    try {
+      editorStore.domainObjectsDeleted(xmiIds);
+
+      // Assuming infrastructureService.deleteDomainObject handles the backend deletion
+      await infrastructureService.deleteDomainObject({
+        productId,
+        xmiIds
+      });
+
+      // Remove nodes from the GoJS diagram
+      xmiIds.forEach(xmiId => {
+        const node = gojsDiagram.diagram.findNodeForKey(xmiId);
+        if (node) {
+          gojsDiagram.diagram.remove(node);
+        }
+      });
+
+      // Update the state to reflect the deletion
+      const domainObjects = xmiIds.map(xmiId => getDomainObject.value(xmiId)).filter(isNotEmpty);
+      deleteData(domainObjects);
+    } catch (err) {
+      loggingService.error('Failed to delete track item', { cause: err });
+      toastService.displayError({
+        title: 'error.requestErrorTitle',
+        text: 'error.failedToDeleteTrackItem'
+      });
+
+      throw err;
+    }
+  };
+
+  return {
+    // Existing state and methods...
+    deleteTrackItem,
+  };
+});
+```
+
+### Testing the Implementation:
+
+1. **Trigger Deletion**: Delete a track item using the 'x' icon in the dropdown.
+2. **Check Synchronization**: Verify that the item is removed from the GoJS diagram and the state is updated correctly.
+3. **Ensure Consistency**: Check that the highlight and selection states are consistent with the deletion.
+
+This approach leverages the existing structure and methods within the project to ensure proper deletion and synchronization with the GoJS diagram.
+
+
+-----
 To address the first task of keeping the dropdown open when deselecting items, we need to modify the behavior in the `TrackItemProperty.vue` and possibly the `SearchProperties.vue` component to ensure the dropdown stays open after clicking the "X" button.
 
 ### Step-by-Step Solution:
