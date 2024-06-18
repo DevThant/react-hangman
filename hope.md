@@ -1,3 +1,962 @@
+To resolve the issues and ensure proper handling of the new `RemoveTrackItem` event, we need to make updates in the following files: `event.ts`, `TrackItemProperty.vue`, and `Editor.vue`. Additionally, we need to ensure that we handle the event correctly within the editor store for selections and highlights.
+
+Here's how you can achieve this:
+
+### 1. Update `event.ts`
+Add the new event type `RemoveTrackItem`.
+
+```typescript
+export enum EventType {
+  // ... existing event types
+  RemoveTrackItem = 'removeTrackItem',
+}
+
+type Events = {
+  // ... existing events
+  [EventType.RemoveTrackItem]: XmiId;
+};
+
+// ... existing createEventService function
+```
+
+### 2. Update `TrackItemProperty.vue`
+Emit the `RemoveTrackItem` event when a track item is deleted.
+
+```vue
+<template>
+  <!-- ... existing template code -->
+</template>
+
+<script setup lang="ts">
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
+import { useI18n } from 'vue-i18n';
+
+import { PropertyValue } from '@ebitoolmx/cbss-types';
+import { XmiId } from '@ebitoolmx/eclipse-types';
+import { extractXmiId } from '@ebitoolmx/ebitool-classic-types';
+import { isNotEmpty } from '@ebitoolmx/predicates';
+
+import { ToolType, ToolItemCategory } from '@/typings/tools.js';
+import { SplitView } from '@/typings/splitView.js';
+import { IndicatorType } from '@/typings/indicator.js';
+import { PlainSelection } from '@/typings/selection/PlainSelection.js';
+import { PlainHighlight } from '@/typings/highlight/PlainHighlight.js';
+
+import AppDeletableIndicator from '@/components/common/indicator/DeletableIndicator.vue';
+import AppIndicator from '@/components/common/indicator/Indicator.vue';
+import AppPropertyContainer from '@/components/common/sidePanelElements/PropertyContainer.vue';
+import AppSearchProperties from '@/components/common/search/SearchProperties.vue';
+import AppIconButton from '@/components/common/icon/IconButton.vue';
+
+import { eventService, EventType } from '@/services/event.js';
+
+import { useInfrastructureStore } from '@/stores/infrastructure.js';
+import { useDiagramStore } from '@/stores/diagram.js';
+import { useEditorStore } from '@/stores/editor.js';
+import { isMXObjectIdentifier } from '@/typings/selection';
+
+defineOptions({ name: 'TrackItemProperty' });
+
+const props = withDefaults(
+  defineProps<{
+    id: string;
+    value?: PropertyValue[];
+    availableValues?: PropertyValue[];
+    category?: string;
+  }>(),
+  {
+    value: () => [],
+    availableValues: () => [],
+    category: 'Unknown'
+  }
+);
+
+const emit = defineEmits<{ change: [xmiIds: XmiId[]] }>();
+
+const { t } = useI18n();
+const editorStore = useEditorStore();
+const infrastructureStore = useInfrastructureStore();
+const diagramStore = useDiagramStore();
+
+const showAll = ref<boolean>(false);
+
+const isEditing = computed<boolean>(
+  () =>
+    diagramStore.selectedToolItem?.category === props.category &&
+    diagramStore.selectedToolItem.toolType === ToolType.PickerTool
+);
+
+const groupedTrackItems = computed<Array<Array<[PropertyValue, number]>>>(() => {
+  const groupedByMileage = props.value.reduce(
+    (acc: Record<string, Array<[PropertyValue, number]>>, item: PropertyValue, i: number) => {
+      const domainObject = infrastructureStore.getTrackItem(item.objectIdentifier.id);
+      const mileage = domainObject?.domain.position?.mileage;
+      if (mileage && !acc[mileage]) {
+        acc[mileage] = [];
+      }
+      if (mileage && acc[mileage]) {
+        acc[mileage].push([item, i + 1]);
+      }
+      return acc;
+    },
+    {}
+  );
+
+  const formattedArray = Object.values(groupedByMileage);
+  return formattedArray;
+});
+
+const currentIds = computed<string[]>(() => props.value.map(p => extractXmiId(p.object.reference)));
+
+function getNodesToHighlight(propValues: PropertyValue[]): string[] {
+  const nodes = propValues.map(value => value.objectIdentifier.id);
+
+  return nodes.filter(isNotEmpty);
+}
+
+function isAllValuesHighlighted(): boolean {
+  if (editorStore.highlighted.isEmpty()) return false;
+
+  const nodesToHighlight = getNodesToHighlight(props.value).filter(Boolean);
+
+  return nodesToHighlight.every(node => editorStore.highlighted.value.includes(node));
+}
+
+function isHighlighted(id: PropertyValue): boolean {
+  const [nodeToHighlight] = getNodesToHighlight([id]);
+  return editorStore.highlighted.value.includes(nodeToHighlight);
+}
+
+const highlight = (propValues: PropertyValue[]): void => {
+  const nodesToHighlight = getNodesToHighlight(propValues);
+  editorStore.toggleHighlighted(new PlainHighlight(nodesToHighlight));
+  eventService.emit(EventType.CenterHighlighted);
+
+  for (const propValue of propValues) {
+    const layer = propValue.object.eClass;
+    diagramStore.setLayerVisibility([{ layer, visible: true }]);
+  }
+};
+
+const deleteSelected = (xmiId: XmiId): void => {
+  emit(
+    'change',
+    currentIds.value.filter(id => id !== xmiId)
+  );
+  editorStore.setHighlighted(
+    new PlainHighlight(editorStore.highlighted.value.filter((id: string) => id !== xmiId))
+  );
+
+  const newSelection = editorStore.selected.value.ids.filter(id =>
+    isMXObjectIdentifier(id) ? id.id : id !== xmiId
+  );
+  editorStore.setSelected(new PlainSelection(newSelection));
+
+  // Emit the event to remove track item
+  eventService.emit(EventType.RemoveTrackItem, xmiId);
+};
+
+const addSelected = (xmiId: XmiId): void => {
+  editorStore.setHighlighted(new PlainHighlight([...editorStore.highlighted.value.expandedIds, xmiId]));
+  emit('change', [...currentIds.value, xmiId]);
+};
+
+const addValue = (propValue: PropertyValue): void => {
+  const includeXmiId = extractXmiId(propValue.object.reference);
+  if (!currentIds.value.includes(includeXmiId)) addSelected(includeXmiId);
+};
+
+const deleteValue = (propValue: PropertyValue): void => {
+  const excludeXmiId = extractXmiId(propValue.object.reference);
+  deleteSelected(excludeXmiId);
+};
+
+const toggleEdit = (): void => {
+  if (diagramStore.selectedToolItem?.category !== props.category) {
+    diagramStore.selectToolItem({
+      category: props.category as ToolItemCategory,
+      toolType: ToolType.PickerTool,
+      toolName: 'MultiReferencePickerTool'
+    });
+
+    showAll.value = true;
+    if (!isAllValuesHighlighted()) {
+      highlight(props.value);
+    }
+    return;
+  }
+
+  diagramStore.selectToolItem(null);
+};
+
+const isEmpty = (): boolean => currentIds.value.length === 0;
+
+const toggleShowAll = (): void => {
+  showAll.value = !showAll.value;
+};
+
+const isSplitViewSelected = (): boolean => editorStore.isSplitViewShown(SplitView.Positions);
+
+const togglePositionsView = (): void => {
+  editorStore.toggleSplitView(SplitView.Positions);
+};
+
+const handleSidePanelToggle = (): void => {
+  if (isEditing.value) {
+    toggleEdit();
+  }
+};
+
+const selectItemGroup = (propValue: PropertyValue): void => {
+  const selection = new PlainSelection([propValue.objectIdentifier]);
+  editorStore.setSelected(selection);
+
+  const nodesToHighlight = getNodesToHighlight([propValue]);
+  editorStore.setHighlighted(new PlainHighlight(nodesToHighlight));
+
+  if (isHighlighted(propValue)) {
+    editorStore.setHighlighted(
+      new PlainHighlight(
+        editorStore.highlighted.value.filter((id: string) => id !== propValue.objectIdentifier.id)
+      )
+    );
+  }
+};
+
+onMounted(() => eventService.on(EventType.ToggleSidePanel, handleSidePanelToggle));
+
+onBeforeUnmount(() => {
+  if (diagramStore.selectedToolItem?.toolType === ToolType.PickerTool) {
+    diagramStore.selectToolItem(null);
+  }
+});
+</script>
+
+<style scoped>
+.button-row {
+  display: flex;
+  padding-bottom: var(--base-spacing-2);
+
+  & > * {
+    margin-right: var(--base-spacing-2);
+  }
+}
+
+.element {
+  margin-top: var(--base-spacing-2);
+}
+
+.label-row-end {
+  flex-grow: 1;
+  display: flex;
+  justify-content: flex-end;
+
+  & svg {
+    width: 2em;
+    height: 2em;
+  }
+}
+
+.inline {
+  width: fit-content;
+}
+
+.prop-values {
+  display: grid;
+  grid-template-columns: [order] 2em [handle] 3em [value] auto;
+  column-gap: 1em;
+  margin-top: 1.5em;
+}
+
+.prop-value-group {
+  display: grid;
+  grid-column: 1 / span 3;
+  grid-template-columns: subgrid;
+}
+
+.handle {
+  grid-column: handle;
+}
+
+.multiple {
+  & .handle {
+    border-right: 1px solid var(--track-item-order-group-line-color);
+  }
+
+  &:hover {
+    background: var(--dropdown-item-hover-color);
+
+    & .value {
+      background: var(--dropdown-item-hover-color);
+    }
+
+    & .handle {
+      border-right: 1px solid var(--track-item-order-group-line-hover);
+    }
+  }
+
+  &::before,
+  &::after {
+    content: '';
+    height: var(--base-spacing-1);
+    grid-column: order / span 3;
+  }
+
+  & > * {
+   
+
+ &:nth-child(-n + 3) {
+      margin-top: 0;
+    }
+
+    &:last-child {
+      margin-bottom: 0;
+    }
+  }
+}
+
+.order {
+  display: flex;
+  align-items: center;
+  grid-column: order;
+  margin-left: 1em;
+  color: var(--track-item-order-font-color);
+
+  &.title {
+    margin-left: 0;
+  }
+}
+
+.value {
+  grid-column: value;
+  margin: var(--base-spacing-1) 0 var(--base-spacing-1) 0;
+}
+</style>
+```
+
+### 3. Update `Editor.vue`
+Subscribe to the `RemoveTrackItem` event and handle it accordingly.
+
+```typescript
+// ... existing imports
+
+defineOptions({ name: 'InfrastructureEditor' });
+
+useDiagramStore();
+
+const { cbssPositionCorrectionSplittingEnabled } = useIsFeatureEnabled();
+
+const gojsDiagram = useInjectDiagram(cbssDiagramKey);
+
+useInfrastructure(cbssDiagramKey, false);
+useInfrastructureTools(gojsDiagram);
+useMultiUserCursors(gojsDiagram);
+
+useInfrastructureReactivity(gojsDiagram);
+
+const infrastructureStore = useInfrastructureStore();
+const { selectToolItem } = useDiagramStore();
+const editorStore = useEditorStore();
+const preferencesStore = usePreferencesStore();
+const productsStore = useProductsStore();
+
+const onDiagramMounted = (target: string) => gojsDiagram.attachDiagram(target);
+
+const canModifySelection = (): boolean => editorStore.isEditMode && !editorStore.selected.isEmpty();
+
+const deleteSelected = async (): Promise<void> => {
+  if (!preferencesStore.skipDeleteObjectDialog) {
+    eventService.emit(EventType.OpenDialog, {
+      dialogName: DialogNames.DeleteObjectConfirmation,
+      options: {
+        modal: true,
+        props: {
+          productId: productsStore.activeProductId,
+          xmiIds: editorStore.selected.normalizedIds,
+          deleteDomainObject: infrastructureStore.deleteDomainObject
+        }
+      }
+    });
+  } else {
+    await infrastructureStore.deleteDomainObject({
+      productId: productsStore.activeProductId,
+      xmiIds: editorStore.selected.normalizedIds
+    });
+  }
+};
+
+const changeNotationDirection = (): void => {
+  editorStore.selected.normalizedIds.forEach((xmiId: XmiId) => {
+    const domainObject = infrastructureStore.getDomainObject(xmiId);
+    const notationDirection = domainObject?.representation?.meta?.notationDirection;
+
+    if (!notationDirection) return;
+
+    const newDirection =
+      notationDirection === BasicDirection.Nominal
+        ? BasicDirection.Reverse
+        : BasicDirection.Nominal;
+
+    infrastructureStore.switchNotationDirection({
+      productId: productsStore.activeProductId,
+      xmiId,
+      notationDirection: newDirection
+    });
+  });
+};
+
+const shortcutHandler = (shortcut: Shortcut) => {
+  const isDelete = shortcut === Shortcut.Delete || shortcut === Shortcut.DeleteBackspace;
+  const canChangeNotationDirection = shortcut === Shortcut.SwitchNotationDirection;
+
+  if (
+    isDelete &&
+    canModifySelection() &&
+    !isBaseSelection(editorStore.selected) &&
+    !isModelMetaDataSelection(editorStore.selected)
+  ) {
+    deleteSelected();
+  } else if (canChangeNotationDirection && canModifySelection()) {
+    changeNotationDirection();
+  } else if (shortcut === Shortcut.Escape) {
+    selectToolItem(null);
+  }
+};
+
+const onDiagramKeyDown = (): void => {
+  const event = gojsDiagram.diagram.lastInput;
+  if (event) {
+    event.bubbles = true;
+    event.handled = false;
+  }
+};
+
+const clearTrackItemAdornments = (diagram: Diagram) => {
+  const trackItems = diagram.findNodesByExample({ type: GoType.TrackItem });
+
+  trackItems.each(trackItem => {
+    trackItem.removeAdornment('trackItemOrder');
+  });
+};
+
+const updateTrackItemAdornments = () => {
+  clearTrackItemAdornments(gojsDiagram.diagram);
+
+  const trackItems = gojsDiagram.diagram.findNodesByExample({ type: GoType.TrackItem });
+
+  trackItems.each(trackItem => {
+    const { trackId } = trackItem.data;
+    const track = gojsDiagram.diagram.findLinkForKey(trackId);
+
+    if (
+      trackId &&
+      track?.isSelected &&
+      !isLineSelection(editorStore.selected) &&
+      !isMainTrackSelection(editorStore.selected)
+    ) {
+      const adornment = trackItemsOrderTemplate(GraphObject.make);
+      adornment.adornedObject = trackItem;
+      trackItem?.addAdornment('trackItemOrder', adornment);
+    }
+  });
+};
+
+const onModelChanged = (event: ChangedEvent): void => {
+  if (
+    event.change === ChangedEvent.Property &&
+    (event.propertyName === 'identity' || event.propertyName === 'label') &&
+    event?.object?.group
+  ) {
+    const group = gojsDiagram.diagram.findPartForKey(event.object.group);
+    if (group) {
+      generateLabel(group as GroupWithData);
+    }
+  }
+
+  if (
+    event.change === ChangedEvent.Property &&
+    (event.propertyName === 'trackItemIds' ||
+      event.propertyName === 'angles' ||
+      event.propertyName === 'location')
+  ) {
+    updateTrackItemAdornments();
+  }
+};
+
+const onLinkedOrRelinked = (event: DiagramEvent): void => {
+  (event.subject as Link).isSelected = false;
+  const linkData = event.subject.data;
+
+  const fromLeg = event.subject.fromNode.data.legs.find(
+    (leg: DomainLeg) => leg.xmiId === linkData.fromPortId
+  );
+  const toLeg = event.subject.toNode.data.legs.find(
+    (leg: DomainLeg) => leg.xmiId === linkData.toPortId
+  );
+
+  const track = infrastructureStore.getTrack(fromLeg.trackId ?? toLeg.trackId);
+
+  if (fromLeg.hasTrack || toLeg.hasTrack) {
+    infrastructureStore.relinkTrack({
+      productId: productsStore.activeProductId,
+      properties: {
+        sourceLeg:
+          fromLeg.xmiId === track?.domain.sourceLeg.reference
+            ? linkData.fromPortId
+            : linkData.toPortId,
+        targetLeg:
+          fromLeg.xmiId === track?.domain.sourceLeg.reference
+            ? linkData.toPortId
+            : linkData.fromPortId,
+        xmiId: fromLeg.trackId ?? toLeg.trackId
+      }
+    });
+
+    return;
+  }
+
+  infrastructureStore.addTrack({
+    productId: productsStore.activeProductId,
+    sourceLeg: linkData.fromPortId,
+    targetLeg: linkData.toPortId
+  });
+};
+
+const updateBendpoints = (link: Link): void => {
+  const bendpoints: GoLocation[] = [];
+  link.points.each(({ x, y }) => {
+    bendpoints.push({ x, y });
+  });
+
+  infrastructureStore.reshapeTrack({
+    productId: productsStore.activeProductId,
+    xmiId: link.data.xmiId,
+    bendpoints
+  });
+};
+
+const onLinkReshaped = (event: DiagramEvent): void => {
+  const link = event.subject as Link;
+  updateBendpoints(link);
+};
+
+const updateAssociatedLinks = (part: Part): void => {
+  if (part.data?.type === 'node') {
+    part.data.legs.forEach((leg: { trackId: Key }) => {
+      const link: Link | null = gojsDiagram.diagram.findLinkForKey(leg.trackId);
+      if (link) updateBendpoints(link);
+    });
+  }
+};
+
+const onSelectionMoved = (event: DiagramEvent): void => {
+  if (!editorStore.isEditMode) return;
+  const updatedDomainBounds: UpdateBounds[] = [];
+
+  const parts = event.subject as GoSet<Part>;
+  parts.each(part => {
+    const domainObject = infrastructureStore.getDomainObject(part?.data?.xmiId);
+    const hasMoved =
+      domainObject?.representation &&
+      (part.location.x !== domainObject.representation?.location?.x ||
+        part.location.y !== domainObject.representation?.location?.y);
+
+    if (part && domainObject && hasMoved) {
+      const movedObject = updateBounds(domainObject, { location: part.location });
+
+      updatedDomainBounds.push({
+        domainObject: movedObject,
+        oldBounds: { location: domainObject?.representation?.location }
+      });
+
+      updateAssociatedLinks(part);
+    }
+  });
+
+  if (!updatedDomainBounds.length) return;
+
+  infrastructureStore.updateDomainObjectBounds({
+    productId: productsStore.activeProductId,
+    updatedDomainBounds
+  });
+};
+
+const onPartResized = (event: DiagramEvent): void => {
+  if (!editorStore.isEditMode) return;
+
+  const part = event.subject as Part;
+  const domainObject = infrastructureStore.getDomainObject(part?.data?.xmiId);
+
+  if (part && domainObject) {
+    const resizedObject = updateBounds(domainObject, {
+      location: part.location,
+      size: part.desiredSize
+    });
+
+    infrastructureStore.updateDomainObjectBounds({
+      productId: productsStore.activeProductId,
+      updatedDomainBounds: [
+        {
+          domainObject: resizedObject,
+          oldBounds: {
+            location: domainObject?.representation?.location,
+            size: domainObject?.representation?.size
+          }
+        }
+      ]
+    });
+  }
+};
+
+const drawTrackArrows = (
+  tracks: Track[],
+  links: Link[],
+  calculateArrowDirections: (tracksMap: Map<Track, Link>) => Map<Link, BasicDirection>
+): void => {
+  const tracksMap = new Map(zip(tracks, links));
+  const directions = calculateArrowDirections(tracksMap);
+
+  drawArrows(directions);
+};
+
+const addTrackArrows = (diagram: Diagram, domainObject: MainTrack |
+
+ Line) => {
+  const tracks = domainObject.domain.tracks
+    ?.map(trackRef => infrastructureStore.getDomainObject(trackRef.reference))
+    .filter(isNotEmpty) as Track[];
+
+  const links = tracks.map(o => diagram.findLinkForKey(o.xmiId)).filter(isNotEmpty);
+
+  const calculateArrowDirections = getTrackDirectionCalculator(
+    infrastructureStore.getNodeFromLeg,
+    isMainTrack(domainObject),
+    isMainTrack(domainObject) ? domainObject.domain.travellingDirection : undefined
+  );
+
+  drawTrackArrows(tracks, links, calculateArrowDirections);
+};
+
+const clearTrackArrows = (diagram: Diagram) => {
+  diagram.links.each(link => {
+    link.elements.filter(go => go.name.startsWith(ArrowNameBase)).each(go => link.remove(go));
+  });
+};
+
+const updateTrackArrows = () => {
+  clearTrackArrows(gojsDiagram.diagram);
+  if (isLineSelection(editorStore.selected) || isMainTrackSelection(editorStore.selected)) {
+    addTrackArrows(gojsDiagram.diagram, editorStore.selected.domainObject);
+  } else if (
+    isLineHighlight(editorStore.highlighted) ||
+    isMainTrackHighlight(editorStore.highlighted)
+  ) {
+    addTrackArrows(gojsDiagram.diagram, editorStore.highlighted.domainObject);
+  }
+};
+
+const onSelectionChanged = () => {
+  updateTrackArrows();
+  updateTrackItemAdornments();
+};
+
+const onHighlightedChanged = () => {
+  updateTrackArrows();
+};
+
+const removeTrackItem = (excludeXmiId: XmiId) => {
+  const trackItems = gojsDiagram.diagram.findNodesByExample({ type: GoType.TrackItem });
+
+  trackItems.each(trackItem => {
+    if (trackItem.data.xmiId === excludeXmiId) {
+      gojsDiagram.diagram.remove(trackItem);
+    }
+  });
+};
+
+onMounted(() => {
+  eventService.on(EventType.Shortcut, shortcutHandler);
+  eventService.on(EventType.RemoveTrackItem, removeTrackItem);
+
+  gojsDiagram.diagram.commandHandler.doKeyDown = onDiagramKeyDown;
+  gojsDiagram.diagram.addModelChangedListener(onModelChanged);
+  gojsDiagram.diagram.addDiagramListener('LinkDrawn', onLinkedOrRelinked);
+  gojsDiagram.diagram.addDiagramListener('LinkReshaped', onLinkReshaped);
+  gojsDiagram.diagram.addDiagramListener('SelectionMoved', onSelectionMoved);
+  gojsDiagram.diagram.addDiagramListener('PartResized', onPartResized);
+});
+
+onBeforeUnmount(() => {
+  eventService.off(EventType.Shortcut, shortcutHandler);
+  eventService.off(EventType.RemoveTrackItem, removeTrackItem);
+
+  gojsDiagram.diagram.removeModelChangedListener(onModelChanged);
+  gojsDiagram.diagram.removeDiagramListener('LinkDrawn', onLinkedOrRelinked);
+  gojsDiagram.diagram.removeDiagramListener('LinkReshaped', onLinkReshaped);
+  gojsDiagram.diagram.removeDiagramListener('SelectionMoved', onSelectionMoved);
+  gojsDiagram.diagram.removeDiagramListener('PartResized', onPartResized);
+});
+
+watch(() => editorStore.selected, onSelectionChanged);
+watch(() => editorStore.highlighted, onHighlightedChanged);
+watch(
+  () => editorStore.isEditMode,
+  isEdit => {
+    if (isEdit) {
+      clearCurrentLineAndItemGroups(
+        productsStore.activeProductId,
+        infrastructureStore.site ?? null
+      );
+
+      if (cbssPositionCorrectionSplittingEnabled.value) {
+        splitPositionCorrectionsWithMultipleTracks(
+          infrastructureService,
+          productsStore.activeProductId,
+          infrastructureStore.positionCorrections,
+          infrastructureStore.getTrackPoints,
+          infrastructureStore.siteIdentifier?.id ?? ''
+        );
+      }
+    }
+  }
+);
+```
+
+### 4. Update the Editor Store (`editor.ts`)
+
+Ensure that `highlighted` and `selected` have the correct structure and initialize them properly.
+
+```typescript
+import { acceptHMRUpdate, defineStore } from 'pinia';
+import { ref, computed, toRaw } from 'vue';
+
+import { XmiId } from '@ebitoolmx/eclipse-types';
+
+import { EditorType } from '@/typings/store.js';
+import { Panel } from '@/typings/sidePanel.js';
+import { SplitView, SplitViewOptions } from '@/typings/splitView.js';
+import { EditorMode } from '@/typings/editor.js';
+import { Theme } from '@/typings/theme.js';
+import { PlainSelection } from '@/typings/selection/PlainSelection.js';
+import { PlainHighlight } from '@/typings/highlight/PlainHighlight.js';
+
+import { metricsService } from '@/services/metrics.js';
+import { loggingService } from '@/services/logging.js';
+import { isHighlight, Highlight } from '@/typings/highlight/index.js';
+import { isSelection, Selection } from '@/typings/selection/index.js';
+
+export const useEditorStore = defineStore('editor', () => {
+  /* State */
+  const forcedTheme = ref<Theme | null>(null);
+  const requiresCloud = ref(true);
+  const editorType = ref<EditorType | null>(null);
+  const isSearchOpen = ref(false);
+  const sidePanel = ref<Panel>(Panel.Blank);
+  const lastSidePanelState = ref<Panel>(Panel.Properties);
+  const secondarySidePanel = ref<Panel>(Panel.Blank);
+  const splitViewOptions = ref<SplitViewOptions[]>([]);
+  const selectedSplitView = ref<SplitView | null>(null);
+  const editorMode = ref<EditorMode>(EditorMode.NoProduct);
+  const _selected = ref<Selection>(new PlainSelection());
+  const _highlighted = ref<Highlight>(new PlainHighlight());
+  const _focusable = ref<boolean>(false);
+
+  /* Getters */
+  const isEditMode = computed<boolean>(() => editorMode.value === EditorMode.Edit);
+  const isViewMode = computed<boolean>(() => editorMode.value === EditorMode.View);
+  const isReadMode = computed<boolean>(() => editorMode.value === EditorMode.Read);
+  const selected = computed<Selection>(() => _selected.value);
+  const highlighted = computed<Highlight>(() => _highlighted.value);
+  const isFocusable = computed<boolean>(() => _focusable.value);
+  const splitViews = computed<SplitView[]>(() => splitViewOptions.value.map(sv => sv.type));
+
+  const isSplitViewShown = (v: SplitView): boolean => selectedSplitView.value === v;
+
+  /* Actions */
+  const setFocusable = (value: boolean) => {
+    _focusable.value = value;
+  };
+
+  const setRequiresCloud = (value: boolean) => {
+    requiresCloud.value = value;
+  };
+
+  const setEditorType = (value: EditorType) => {
+    editorType.value = value;
+  };
+
+  const setEditorMode = (mode: EditorMode) => {
+    metricsService.trackEvent('editorModeChanged', { newMode: mode, oldMode: editorMode.value });
+    editorMode.value = mode;
+  };
+
+  const showSearch = () => {
+    isSearchOpen.value = true;
+  };
+
+  const hideSearch = () => {
+    isSearchOpen.value = false;
+  };
+
+  const setSidePanel = (panel: Panel) => {
+    sidePanel.value = panel;
+    if (panel !== Panel.Blank) lastSidePanelState.value = panel;
+  };
+
+  const setSecondarySidePanel = (panel: Panel) => {
+    secondarySidePanel.value = panel;
+  };
+
+  const setSplitView = (view: SplitView) => {
+    splitViewOptions.value = [{ type: view }];
+    selectedSplitView.value = view;
+    metricsService.trackEvent('splitViewChanged', { view });
+  };
+
+  const closeSplitView = () => {
+    splitViewOptions.value = [];
+    selectedSplitView.value = null;
+    metricsService.trackEvent('splitViewChanged', { view: 'hidden' });
+  };
+
+  const addSplitView = (view: SplitView, title?: string) => {
+    if (!splitViews.value.includes(view)) {
+      splitViewOptions.value = [
+        ...splitViewOptions.value,
+        title ? { type: view, title } : { type: view }
+      ];
+    } else if (title) {
+      splitViewOptions.value = splitViewOptions.value.map(svo => {
+        return svo.type === view ? { ...svo, title } : svo;
+      });
+    }
+    selectedSplitView.value = view;
+  };
+
+  const removeSplitView = (viewToRemove: SplitView) => {
+    splitViewOptions.value = splitViewOptions.value.filter(view => view.type !== viewToRemove);
+    if (selectedSplitView.value === viewToRemove) {
+      selectedSplitView.value = splitViews.value?.[0] ?? null;
+    }
+  };
+
+  const selectSplitView = (viewToSelect: SplitView) => {
+    selectedSplitView.value = viewToSelect;
+  };
+
+  const toggleSplitView = (viewToToggle: SplitView) => {
+    if (splitViews.value.includes(viewToToggle)) {
+      removeSplitView(viewToToggle);
+    } else {
+      setSplitView(viewToToggle);
+    }
+  };
+
+  const setSelected = (newSelected: Selection) => {
+    if (isSelection(newSelected)) {
+      _selected.value = newSelected;
+    } else {
+      loggingService.warn(
+        'setSelected requires a Selection class to be passed to it. Selection has not been changed.'
+      );
+    }
+  };
+
+  const setHighlighted = (newHighlighted: Highlight) => {
+    if (isHighlight(newHighlighted)) {
+      _highlighted.value = newHighlighted;
+    } else {
+      loggingService.warn(
+        'setHighlighted requires a Highlight class to be passed to it. Highlight has not been changed.'
+      );
+    }
+  };
+
+  const toggleHighlighted = (newHighlighted:
+
+ Highlight) => {
+    if (newHighlighted.isEmpty() || _highlighted.value.isEmpty()) {
+      _highlighted.value = newHighlighted;
+    } else if (newHighlighted.isSameHighlightAs(_highlighted.value)) {
+      _highlighted.value = new PlainHighlight();
+    } else {
+      _highlighted.value = newHighlighted;
+    }
+  };
+
+  const clearSelection = () => {
+    setSelected(new PlainSelection());
+    setHighlighted(new PlainHighlight());
+  };
+
+  const domainObjectsDeleted = (xmiIds: XmiId[]) => {
+    xmiIds.forEach(xmiId => {
+      if (_selected.value.includes(xmiId)) clearSelection();
+    });
+  };
+
+  const $reset = () => {
+    forcedTheme.value = null;
+    requiresCloud.value = true;
+    editorType.value = null;
+    editorMode.value = EditorMode.NoProduct;
+    isSearchOpen.value = false;
+    splitViewOptions.value = [];
+    selectedSplitView.value = null;
+    _selected.value = new PlainSelection();
+    _highlighted.value = new PlainHighlight();
+  };
+
+  return {
+    requiresCloud,
+    forcedTheme,
+    editorType,
+    editorMode,
+    isEditMode,
+    isViewMode,
+    isReadMode,
+    isSearchOpen,
+    sidePanel,
+    lastSidePanelState,
+    secondarySidePanel,
+    splitViewOptions,
+    splitViews,
+    selectedSplitView,
+    selected,
+    highlighted,
+    isSplitViewShown,
+    toggleHighlighted,
+    clearSelection,
+    domainObjectsDeleted,
+    setRequiresCloud,
+    setEditorType,
+    setEditorMode,
+    showSearch,
+    hideSearch,
+    setSidePanel,
+    setSecondarySidePanel,
+    setSplitView,
+    closeSplitView,
+    addSplitView,
+    removeSplitView,
+    selectSplitView,
+    toggleSplitView,
+    setSelected,
+    setHighlighted,
+    setFocusable,
+    isFocusable,
+    $reset
+  };
+});
+
+if (import.meta.hot) {
+  import.meta.hot.accept(acceptHMRUpdate(useEditorStore, import.meta.hot));
+}
+```
+
+These updates should ensure that the `RemoveTrackItem` event is properly handled and that track items are removed correctly.
+
+-----
 ### Analysis and Interaction Summary
 
 #### **Editor.vue (InfrastructureEditor.vue)**
