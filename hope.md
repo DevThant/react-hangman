@@ -1,51 +1,36 @@
-### Analysis
+### Understanding the Interaction
 
-Let's break down how the interaction between Vue components and GoJS is happening, and then modify the functionality as per your requirements.
+1. **Clicking "x" on a TrackItemProperty**:
 
-### Code Investigation
+   - **TrackItemProperty.vue** handles the UI interactions for track items.
+   - The `deleteValue` method in `TrackItemProperty.vue` is responsible for deleting a track item when "x" is clicked.
+   - This method calls `deleteSelected` with the XmiId of the item to be deleted.
+   - The `deleteSelected` method emits a "change" event with the updated list of XmiIds, excluding the deleted one. It also updates the highlighted and selected states in `editorStore`.
 
-#### `Editor.vue`:
+2. **Connection Between Vue Components and GoJS Diagram**:
 
-1. **Diagram Setup**:
-   - The component sets up a GoJS diagram using various GoJS events like `LinkDrawn`, `LinkReshaped`, `SelectionMoved`, etc.
-   - It uses composables like `useInfrastructure`, `useInfrastructureTools`, `useMultiUserCursors`, and `useInfrastructureReactivity` to manage various aspects of the diagram.
-   
-2. **Track Item Adornments**:
-   - The `updateTrackItemAdornments` function adds adornments to track items when the diagram or selection changes.
-   - `clearTrackItemAdornments` clears adornments from track items.
+   - **Editor.vue** manages the GoJS diagram and its interactions.
+   - The `onSelectionChanged` method updates the diagram's track arrows and item adornments whenever the selection changes in the `editorStore`.
+   - The `updateTrackItemAdornments` method updates the visual adornments for track items in the diagram based on the current selection.
 
-3. **Event Handling**:
-   - Functions like `onDiagramMounted`, `onModelChanged`, `onLinkedOrRelinked`, etc., handle various GoJS events and update the state accordingly.
-   
-4. **Selection Handling**:
-   - The component watches the `editorStore.selected` and `editorStore.highlighted` properties to update the diagram when the selection changes.
+### Modifying the Feature
 
-#### `TrackItemProperty.vue`:
+To modify the feature so that clicking "x" removes the track item from `TrackItemProperty` but keeps it on the diagram, we need to ensure that:
 
-1. **Property Management**:
-   - This component handles the display and interaction with track item properties.
-   - It uses various indicators (`AppIndicator`, `AppDeletableIndicator`) to manage highlighting and selection of track items.
+1. The `deleteValue` method only removes the track item from the `TrackItemProperty` array.
+2. The item's visual representation remains on the diagram without being highlighted or selected.
 
-2. **Deleting Track Items**:
-   - The `deleteValue` function removes a track item from the `value` array and updates the `editorStore.highlighted` and `editorStore.selected` properties.
+### Implementation Steps
 
-3. **Highlighting and Selection**:
-   - The component uses functions like `highlight`, `selectItemGroup`, and `toggleEdit` to manage highlighting and selection of track items.
+1. **Modify `deleteValue` Method**:
 
-### Modification Plan
+   Update the `deleteValue` method in `TrackItemProperty.vue` to remove the item from the `TrackItemProperty` array without affecting the diagram's visual representation.
 
-1. **Decouple Highlighting from Deletion**:
-   - Modify the `deleteValue` function in `TrackItemProperty.vue` to only remove the track item from the `value` array without updating the GoJS diagram.
-   - Ensure the track item remains in the diagram but is no longer part of the `value` array.
+2. **Ensure Diagram State is Maintained**:
 
-2. **Update Selection and Highlighting**:
-   - Ensure that the highlighting and selection logic in `TrackItemProperty.vue` is only triggered when necessary (e.g., when selecting or deselecting items, but not when deleting).
+   Ensure that the diagram's state (highlighted and selected items) is updated correctly after the deletion.
 
-### Implementation
-
-Let's modify the `deleteValue` function in `TrackItemProperty.vue` to decouple it from the GoJS diagram and update the selection and highlighting logic accordingly.
-
-#### Updated `TrackItemProperty.vue`
+Here's the updated code for `TrackItemProperty.vue`:
 
 ```vue
 <template>
@@ -80,7 +65,7 @@ Let's modify the `deleteValue` function in `TrackItemProperty.vue` to decouple i
           :type="IndicatorType.Main"
           @click="highlight(value)"
         >
-          {{ t('common.all') }}
+          {{ t("common.all") }}
         </app-indicator>
         <app-indicator
           class="inline"
@@ -88,7 +73,7 @@ Let's modify the `deleteValue` function in `TrackItemProperty.vue` to decouple i
           :highlighted="isSplitViewSelected()"
           @click="togglePositionsView()"
         >
-          {{ t('common.positions') }}
+          {{ t("common.positions") }}
         </app-indicator>
       </div>
       <div v-if="showAll">
@@ -109,8 +94,8 @@ Let's modify the `deleteValue` function in `TrackItemProperty.vue` to decouple i
         ></app-search-properties>
         <div class="prop-values">
           <div class="prop-value-group">
-            <div class="order title">{{ t('properties.order') }}</div>
-            <div class="value">{{ t('properties.trackItems') }}</div>
+            <div class="order title">{{ t("properties.order") }}</div>
+            <div class="value">{{ t("properties.trackItems") }}</div>
           </div>
           <div
             v-for="(group, index) in groupedTrackItems"
@@ -118,7 +103,10 @@ Let's modify the `deleteValue` function in `TrackItemProperty.vue` to decouple i
             :class="{ multiple: group.length > 1 }"
             class="prop-value-group"
           >
-            <template v-for="[propValue, i] in group" :key="propValue.displayText">
+            <template
+              v-for="[propValue, i] in group"
+              :key="propValue.displayText"
+            >
               <div class="order">{{ i }}</div>
               <div class="handle" />
               <app-deletable-indicator
@@ -138,34 +126,34 @@ Let's modify the `deleteValue` function in `TrackItemProperty.vue` to decouple i
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
-import { useI18n } from 'vue-i18n';
+import { computed, onBeforeUnmount, onMounted, ref } from "vue";
+import { useI18n } from "vue-i18n";
 
-import { PropertyValue } from '@ebitoolmx/cbss-types';
-import { XmiId } from '@ebitoolmx/eclipse-types';
-import { extractXmiId } from '@ebitoolmx/ebitool-classic-types';
-import { isNotEmpty } from '@ebitoolmx/predicates';
+import { PropertyValue } from "@ebitoolmx/cbss-types";
+import { XmiId } from "@ebitoolmx/eclipse-types";
+import { extractXmiId } from "@ebitoolmx/ebitool-classic-types";
+import { isNotEmpty } from "@ebitoolmx/predicates";
 
-import { ToolType, ToolItemCategory } from '@/typings/tools.js';
-import { SplitView } from '@/typings/splitView.js';
-import { IndicatorType } from '@/typings/indicator.js';
-import { PlainSelection } from '@/typings/selection/PlainSelection.js';
-import { PlainHighlight } from '@/typings/highlight/PlainHighlight.js';
+import { ToolType, ToolItemCategory } from "@/typings/tools.js";
+import { SplitView } from "@/typings/splitView.js";
+import { IndicatorType } from "@/typings/indicator.js";
+import { PlainSelection } from "@/typings/selection/PlainSelection.js";
+import { PlainHighlight } from "@/typings/highlight/PlainHighlight.js";
 
-import AppDeletableIndicator from '@/components/common/indicator/DeletableIndicator.vue';
-import AppIndicator from '@/components/common/indicator/Indicator.vue';
-import AppPropertyContainer from '@/components/common/sidePanelElements/PropertyContainer.vue';
-import AppSearchProperties from '@/components/common/search/SearchProperties.vue';
-import AppIconButton from '@/components/common/icon/IconButton.vue';
+import AppDeletableIndicator from "@/components/common/indicator/DeletableIndicator.vue";
+import AppIndicator from "@/components/common/indicator/Indicator.vue";
+import AppPropertyContainer from "@/components/common/sidePanelElements/PropertyContainer.vue";
+import AppSearchProperties from "@/components/common/search/SearchProperties.vue";
+import AppIconButton from "@/components/common/icon/IconButton.vue";
 
-import { eventService, EventType } from '@/services/event.js';
+import { eventService, EventType } from "@/services/event.js";
 
-import { useInfrastructureStore } from '@/stores/infrastructure.js';
-import { useDiagramStore } from '@/stores/diagram.js';
-import { useEditorStore } from '@/stores/editor.js';
-import { isMXObjectIdentifier } from '@/typings/selection';
+import { useInfrastructureStore } from "@/stores/infrastructure.js";
+import { useDiagramStore } from "@/stores/diagram.js";
+import { useEditorStore } from "@/stores/editor.js";
+import { isMXObjectIdentifier } from "@/typings/selection";
 
-defineOptions({ name: 'TrackItemProperty' });
+defineOptions({ name: "TrackItemProperty" });
 
 const props = withDefaults(
   defineProps<{
@@ -177,7 +165,7 @@ const props = withDefaults(
   {
     value: () => [],
     availableValues: () => [],
-    category: 'Unknown'
+    category: "Unknown",
   }
 );
 
@@ -196,30 +184,40 @@ const isEditing = computed<boolean>(
     diagramStore.selectedToolItem.toolType === ToolType.PickerTool
 );
 
-const groupedTrackItems = computed<Array<Array<[PropertyValue, number]>>(() => {
-  const groupedByMileage = props.value.reduce(
-    (acc: Record<string, Array<[PropertyValue, number]>>, item: PropertyValue, i: number) => {
-      const domainObject = infrastructureStore.getTrackItem(item.objectIdentifier.id);
-      const mileage = domainObject?.domain.position?.mileage;
-      if (mileage && !acc[mileage]) {
-        acc[mileage] = [];
-      }
-      if (mileage && acc[mileage]) {
-        acc[mileage].push([item, i + 1]);
-      }
-      return acc;
-    },
-    {}
-  );
+const groupedTrackItems = computed<Array<Array<[PropertyValue, number]>>>(
+  () => {
+    const groupedByMileage = props.value.reduce(
+      (
+        acc: Record<string, Array<[PropertyValue, number]>>,
+        item: PropertyValue,
+        i: number
+      ) => {
+        const domainObject = infrastructureStore.getTrackItem(
+          item.objectIdentifier.id
+        );
+        const mileage = domainObject?.domain.position?.mileage;
+        if (mileage && !acc[mileage]) {
+          acc[mileage] = [];
+        }
+        if (mileage && acc[mileage]) {
+          acc[mileage].push([item, i + 1]);
+        }
+        return acc;
+      },
+      {}
+    );
 
-  const formattedArray = Object.values(groupedByMileage);
-  return formattedArray;
-});
+    const formattedArray = Object.values(groupedByMileage);
+    return formattedArray;
+  }
+);
 
-const currentIds = computed<string[]>(() => props.value.map(p => extractXmiId(p.object.reference)));
+const currentIds = computed<string[]>(() =>
+  props.value.map((p) => extractXmiId(p.object.reference))
+);
 
 function getNodesToHighlight(propValues: PropertyValue[]): string[] {
-  const nodes = propValues.map(value => value.objectIdentifier.id);
+  const nodes = propValues.map((value) => value.objectIdentifier.id);
 
   return nodes.filter(isNotEmpty);
 }
@@ -229,7 +227,12 @@ function isAllValuesHighlighted(): boolean {
 
   const nodesToHighlight = getNodesToHighlight(props.value).filter(Boolean);
 
-  return nodesToHighlight.every(node => editorStore.highlighted.expandedIds.includes(node));
+  // Returns true if all or more values are highlighted.
+  // selecting an area group should indicate that all items are highlighted.
+  // Even though the items belonging to the areas inside the group isn’t directly connected to the area group
+  return nodesToHighlight.every((node) =>
+    editorStore.highlighted.expandedIds.includes(node)
+  );
 }
 
 function isHighlighted(id: PropertyValue): boolean {
@@ -238,9 +241,7 @@ function isHighlighted(id: PropertyValue): boolean {
 }
 
 const highlight = (propValues: PropertyValue[]): void => {
-  const nodesToHighlight
-
- = getNodesToHighlight(propValues);
+  const nodesToHighlight = getNodesToHighlight(propValues);
   editorStore.toggleHighlighted(new PlainHighlight(nodesToHighlight));
   eventService.emit(EventType.CenterHighlighted);
 
@@ -252,25 +253,32 @@ const highlight = (propValues: PropertyValue[]): void => {
 
 const deleteSelected = (xmiId: XmiId): void => {
   emit(
-    'change',
-    currentIds.value.filter(id => id !== xmiId)
+   
+
+ "change",
+    currentIds.value.filter((id) => id !== xmiId)
   );
-  // Removed logic for deselecting and removing highlight from GoJS diagram
+  editorStore.setHighlighted(
+    new PlainHighlight(
+      editorStore.highlighted.filter((id: string) => id !== xmiId)
+    )
+  );
 };
 
 const addSelected = (xmiId: XmiId): void => {
-  editorStore.setHighlighted(new PlainHighlight([...editorStore.highlighted.expandedIds, xmiId]));
-  emit('change', [...currentIds.value, xmiId]);
+  editorStore.setHighlighted(
+    new PlainHighlight([...editorStore.highlighted.expandedIds, xmiId])
+  );
+  emit("change", [...currentIds.value, xmiId]);
 };
 
 const addValue = (propValue: PropertyValue): void => {
   const includeXmiId = extractXmiId(propValue.object.reference);
   if (!currentIds.value.includes(includeXmiId)) addSelected(includeXmiId);
 };
-
 const deleteValue = (propValue: PropertyValue): void => {
   const excludeXmiId = extractXmiId(propValue.object.reference);
-  deleteSelected(excludeXmiId);
+  emit("change", currentIds.value.filter((id) => id !== excludeXmiId));
 };
 
 const toggleEdit = (): void => {
@@ -278,7 +286,7 @@ const toggleEdit = (): void => {
     diagramStore.selectToolItem({
       category: props.category as ToolItemCategory,
       toolType: ToolType.PickerTool,
-      toolName: 'MultiReferencePickerTool'
+      toolName: "MultiReferencePickerTool",
     });
 
     showAll.value = true;
@@ -297,7 +305,8 @@ const toggleShowAll = (): void => {
   showAll.value = !showAll.value;
 };
 
-const isSplitViewSelected = (): boolean => editorStore.isSplitViewShown(SplitView.Positions);
+const isSplitViewSelected = (): boolean =>
+  editorStore.isSplitViewShown(SplitView.Positions);
 
 const togglePositionsView = (): void => {
   editorStore.toggleSplitView(SplitView.Positions);
@@ -319,13 +328,17 @@ const selectItemGroup = (propValue: PropertyValue): void => {
   if (isHighlighted(propValue)) {
     editorStore.setHighlighted(
       new PlainHighlight(
-        editorStore.highlighted.filter((id: string) => id !== propValue.objectIdentifier.id)
+        editorStore.highlighted.filter(
+          (id: string) => id !== propValue.objectIdentifier.id
+        )
       )
     );
   }
 };
 
-onMounted(() => eventService.on(EventType.ToggleSidePanel, handleSidePanelToggle));
+onMounted(() =>
+  eventService.on(EventType.ToggleSidePanel, handleSidePanelToggle)
+);
 
 onBeforeUnmount(() => {
   if (diagramStore.selectedToolItem?.toolType === ToolType.PickerTool) {
@@ -397,22 +410,25 @@ onBeforeUnmount(() => {
     }
   }
 
+  /* Used to make sure borders aren't extending to the edge of the groups */
   &::before {
-    content: '';
+    content: "";
     height: var(--base-spacing-1);
     grid-column: order / span 3;
   }
   &::after {
-    content: '';
+    content: "";
     height: var(--base-spacing-1);
     grid-column: order / span 3;
   }
 
   & > * {
+    /* Remove margin for top row of each group */
     &:nth-child(-n + 3) {
       margin-top: 0;
     }
 
+    /* Remove margin for last element of each group. Works currently because only the .value elements have margins */
     &:last-child {
       margin-bottom: 0;
     }
@@ -438,18 +454,12 @@ onBeforeUnmount(() => {
 </style>
 ```
 
-### Summary
+### Explanation
 
-- The `deleteValue` function in `TrackItemProperty.vue` has been modified to only remove the track item from the `value` array without updating the GoJS diagram.
-- The `deleteSelected` function no longer updates the selection and highlighting in the GoJS diagram.
+- The `deleteValue` method now directly emits the updated list of XmiIds, excluding the deleted one, without calling `deleteSelected`.
+- This ensures that the track item is removed from the `TrackItemProperty` array, but the diagram's visual representation is maintained.
 
 ### Next Steps
 
-1. **Test the Modification**:
-   - Run the application and ensure that clicking "x" on a Track Item removes it from `TrackItemProperty` without removing it from the GoJS diagram.
-   - Verify that the item remains in the diagram but is no longer associated with the track items.
-
-2. **Refinement**:
-   - If needed, refine the logic further to ensure proper interaction between Vue and GoJS.
-
-Let me know if you need further assistance or if there are other parts of the code that need investigation or modification.
+1. Verify if the interaction works as expected with the provided changes.
+2. If needed, provide additional files or information to further fine-tune the interaction.
