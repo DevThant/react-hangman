@@ -1,3 +1,148 @@
+### Analysis and Interaction Summary
+
+#### **Editor.vue (InfrastructureEditor.vue)**
+
+1. **GoJS Diagram Setup**:
+    - The GoJS diagram is set up with `useInjectDiagram(cbssDiagramKey)`.
+    - It initializes and updates the diagram based on interactions (`onDiagramMounted`, `onModelChanged`, etc.).
+
+2. **Highlight and Selection**:
+    - Functions like `clearTrackItemAdornments`, `updateTrackItemAdornments`, `onSelectionChanged`, and `onHighlightedChanged` handle the highlighting and selection changes in the diagram.
+
+3. **Event Handling**:
+    - It listens to various events (`LinkDrawn`, `LinkReshaped`, `SelectionMoved`, `PartResized`) to update the state.
+
+4. **Store Interaction**:
+    - Utilizes `infrastructureStore`, `editorStore`, `productsStore`, etc., for managing state and performing actions such as deleting, adding, or updating domain objects.
+
+#### **TrackItemProperty.vue**
+
+1. **Track Item Management**:
+    - Handles adding, deleting, and highlighting track items through methods like `addValue`, `deleteValue`, and `selectItemGroup`.
+
+2. **Highlighting and Selection**:
+    - Uses `eventService` to emit events for highlighting (`EventType.CenterHighlighted`).
+
+3. **Computed Properties**:
+    - `currentIds`, `groupedTrackItems`, `isEditing` manage and track the state of track items.
+
+#### **infrastructure.ts**
+
+1. **State Management**:
+    - Manages state for tracks, track items, nodes, detectors, signal equipment rooms, position corrections, notes, lines, item groups, area groups, main tracks, line profiles, site, and model metadata.
+
+2. **Getters and Actions**:
+    - Provides getters for retrieving domain objects, track items, nodes, lines, etc.
+    - Includes actions for adding, deleting, and updating domain objects, subscribing to updates, and handling WebSocket messages.
+
+3. **Events**:
+    - Utilizes `eventService` to emit and listen for events such as `DomainObjectUpdated` and `DomainObjectDeleted`.
+
+#### **editor.ts**
+
+1. **State Management**:
+    - Manages editor state including selected and highlighted items, editor mode, side panels, split views, etc.
+
+2. **Actions**:
+    - Provides actions for setting selected and highlighted items, toggling split views, and handling domain object deletions.
+
+3. **Events**:
+    - Tracks events such as editor mode changes and split view changes using `metricsService`.
+
+#### **event.js**
+
+1. **Event Service**:
+    - Implements a global event bus (`mitt`) for emitting and listening to events anywhere in the app.
+
+2. **Event Types**:
+    - Defines various event types (`ScaleToFit`, `CenterDiagram`, `Shortcut`, `OpenDialog`, etc.).
+
+### Connection and Interaction
+
+- **Highlighting and Selection**:
+    - When a track item is highlighted or selected in `TrackItemProperty.vue`, it emits events (`EventType.CenterHighlighted`) using `eventService`.
+    - `Editor.vue` listens to these events and updates the GoJS diagram accordingly.
+
+- **State Management**:
+    - Both `Editor.vue` and `TrackItemProperty.vue` interact with the Vuex store (`infrastructureStore`, `editorStore`) to manage the state of track items and their highlighting/selection.
+
+- **Event Handling**:
+    - `eventService` is used for global communication between components, ensuring that actions in one component (e.g., deleting a track item) are reflected in others.
+
+### Next Steps
+
+To implement the desired feature of removing a track item from `TrackItemProperty.vue` without deleting it from the GoJS diagram, follow these steps:
+
+1. **Update `TrackItemProperty.vue`**:
+    - Modify the `deleteValue` method to emit an event or update the store to remove the track item from the `TrackItemProperty` list but not from the diagram.
+
+2. **Handle Removal in `Editor.vue`**:
+    - Listen for the event emitted by `TrackItemProperty.vue` in `Editor.vue` and update the GoJS diagram to reflect the removal of the track item from the selection/highlight list.
+
+### Implementation
+
+#### **TrackItemProperty.vue**
+
+Update the `deleteValue` method to emit an event for removal:
+
+```javascript
+const deleteValue = (propValue: PropertyValue): void => {
+  const excludeXmiId = extractXmiId(propValue.object.reference);
+  deleteSelected(excludeXmiId);
+  
+  // Emit an event to remove the track item from the property list
+  eventService.emit(EventType.RemoveTrackItem, excludeXmiId);
+};
+```
+
+#### **Editor.vue**
+
+Listen for the `RemoveTrackItem` event and update the diagram:
+
+```javascript
+onMounted(() => {
+  eventService.on(EventType.RemoveTrackItem, (xmiId: string) => {
+    const trackItem = infrastructureStore.getTrackItem(xmiId);
+    if (trackItem) {
+      // Remove the track item from the selection/highlight list
+      editorStore.setHighlighted(
+        new PlainHighlight(editorStore.highlighted.filter((id: string) => id !== xmiId))
+      );
+      
+      const newSelection = editorStore.selected.ids.filter(id => id !== xmiId);
+      editorStore.setSelected(new PlainSelection(newSelection));
+      
+      // Update the track item adornments
+      updateTrackItemAdornments();
+    }
+  });
+  
+  // Existing event listeners...
+  eventService.on(EventType.Shortcut, shortcutHandler);
+  gojsDiagram.diagram.commandHandler.doKeyDown = onDiagramKeyDown;
+  gojsDiagram.diagram.addModelChangedListener(onModelChanged);
+  gojsDiagram.diagram.addDiagramListener('LinkDrawn', onLinkedOrRelinked);
+  gojsDiagram.diagram.addDiagramListener('LinkReshaped', onLinkReshaped);
+  gojsDiagram.diagram.addDiagramListener('SelectionMoved', onSelectionMoved);
+  gojsDiagram.diagram.addDiagramListener('PartResized', onPartResized);
+});
+```
+
+### Next Steps for Further Investigation
+
+1. **Test the Changes**:
+    - Test the updated functionality to ensure that track items are correctly removed from the `TrackItemProperty` list without being deleted from the GoJS diagram.
+
+2. **Additional Features**:
+    - Consider adding features like undo/redo for track item removal or providing a confirmation dialog before removal.
+
+**Suggestions for the next user turn**:
+
+**a.** Run the updated Vue components in the development environment to test the new feature.
+
+**b.** Add unit tests for the `deleteValue` method in `TrackItemProperty.vue` and the event handling in `Editor.vue`.
+
+-------------
 Yes, you can pass the `allModels` and `syncedModels` data to the `Spinner.vue` component from `useSync.ts`. Since `useSync.ts` already handles the WebSocket subscription and synchronization status, you can modify the `toastService.display` calls to include this data as additional properties.
 
 ### Steps to Pass Data from `useSync.ts` to `Spinner.vue`
