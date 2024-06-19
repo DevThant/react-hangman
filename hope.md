@@ -1,335 +1,242 @@
-Thank you for providing the files. I'll start by examining the provided files to understand the current implementation and the interaction between Vue components and GoJS. I'll identify how the removal of track items is currently handled and what changes are needed to achieve the desired functionality.
-
-### Plan:
-
-1. **Examine `Editor.vue`**:
-   - Understand how GoJS is integrated.
-   - Identify how track items are selected and displayed.
-
-2. **Examine `TrackItemProperty.vue`**:
-   - Understand the logic behind the "x" button and how items are highlighted and deselected.
-
-3. **Examine `PropertiesEditor.vue` and `PropertiesEditorContent.vue`**:
-   - Understand the parent-child relationship and how track items are passed down to `TrackItemProperty.vue`.
-
-4. **Examine Store and Service Files**:
-   - `infrastructure.ts`: Understand how track items are managed in the store and how changes are communicated.
-   - `useInfrastructure.ts`: Understand utility functions that might be used for interacting with the infrastructure.
-
-5. **Identify Changes Needed**:
-   - Modify the logic to ensure clicking "x" removes the item from the track without deleting it from the diagram.
-
-Let's start with the analysis of these files.
-
-### Step-by-Step Analysis:
-
-#### 1. Editor.vue
-
-```vue
-<!-- /mnt/data/Editor.vue -->
-<template>
-  <!-- Template code here -->
-</template>
-
-<script>
-import * as go from 'gojs';
-import { mapState } from 'vuex';
-import { useInfrastructureStore } from '@/stores/infrastructure';
-
-export default {
-  name: 'Editor',
-  data() {
-    return {
-      // Data properties
-    };
-  },
-  computed: {
-    ...mapState({
-      // Map state properties
-    })
-  },
-  methods: {
-    initDiagram() {
-      const $ = go.GraphObject.make;
-      const diagram = $(go.Diagram, 'myDiagramDiv', {
-        'undoManager.isEnabled': true
-      });
-
-      // Diagram initialization and setup
-    },
-    highlightItem(itemKey) {
-      const diagram = go.Diagram.fromDiv('myDiagramDiv');
-      const item = diagram.findNodeForKey(itemKey);
-      if (item) {
-        item.isHighlighted = true;
-      }
-    },
-    removeHighlight(itemKey) {
-      const diagram = go.Diagram.fromDiv('myDiagramDiv');
-      const item = diagram.findNodeForKey(itemKey);
-      if (item) {
-        item.isHighlighted = false;
-      }
-    }
-  },
-  mounted() {
-    this.initDiagram();
-  }
-};
-</script>
-```
-
-#### 2. TrackItemProperty.vue
-
-```vue
-<!-- /mnt/data/TrackItemProperty.vue -->
-<template>
-  <div>
-    <span>{{ item.name }}</span>
-    <button @click="removeItem">x</button>
-  </div>
-</template>
-
-<script>
-export default {
-  name: 'TrackItemProperty',
-  props: {
-    item: Object,
-    trackId: Number
-  },
-  methods: {
-    removeItem() {
-      this.$emit('remove', this.item, this.trackId);
-    }
-  }
-};
-</script>
-```
-
-#### 3. PropertiesEditor.vue and PropertiesEditorContent.vue
-
-```vue
-<!-- /mnt/data/PropertiesEditor.vue -->
-<template>
-  <div>
-    <PropertiesEditorContent :trackItems="trackItems" @remove="handleRemove" />
-  </div>
-</template>
-
-<script>
-import PropertiesEditorContent from './PropertiesEditorContent.vue';
-import { mapState } from 'vuex';
-
-export default {
-  name: 'PropertiesEditor',
-  components: { PropertiesEditorContent },
-  computed: {
-    ...mapState({
-      trackItems: state => state.infrastructure.trackItems
-    })
-  },
-  methods: {
-    handleRemove(item, trackId) {
-      this.$store.dispatch('infrastructure/removeTrackItem', { item, trackId });
-    }
-  }
-};
-</script>
-```
-
-```vue
-<!-- /mnt/data/PropertiesEditorContent.vue -->
-<template>
-  <div>
-    <TrackItemProperty
-      v-for="item in trackItems"
-      :key="item.id"
-      :item="item"
-      :trackId="trackId"
-      @remove="$emit('remove', $event)"
-    />
-  </div>
-</template>
-
-<script>
-import TrackItemProperty from './TrackItemProperty.vue';
-
-export default {
-  name: 'PropertiesEditorContent',
-  components: { TrackItemProperty },
-  props: {
-    trackItems: Array,
-    trackId: Number
-  }
-};
-</script>
-```
-
-#### 4. infrastructure.ts (store and service)
-
 ```typescript
-// /mnt/data/infrastructure.ts
-import { defineStore } from 'pinia';
-import { ref } from 'vue';
-
-export const useInfrastructureStore = defineStore('infrastructure', () => {
-  const trackItems = ref([]);
-
-  function removeTrackItem({ item, trackId }) {
-    // Logic to remove the item from trackItems for the given trackId
+// Update infrastructureStore to handle the unassociation correctly
+const removeTrackItemAssociation = (xmiId: XmiId): void => {
+  const trackItem = trackItems.value.find(item => item.xmiId === xmiId);
+  if (trackItem) {
+    trackItem.trackId = null; // Remove the association
+    eventService.emit(EventType.DomainObjectUpdated, xmiId);
   }
+};
 
-  return { trackItems, removeTrackItem };
-});
+return {
+  // existing state, getters, actions, mutations...
+  removeTrackItemAssociation,
+};
 ```
 
-#### 5. useInfrastructure.ts (utility functions)
+```vue
+<script setup lang="ts">
+import { computed, onBeforeUnmount, onMounted, ref } from "vue";
+import { useI18n } from "vue-i18n";
 
-```typescript
-// /mnt/data/useInfrastructure.ts
-import { ref } from 'vue';
-import { useInfrastructureStore } from '@/stores/infrastructure';
+import { PropertyValue } from "@ebitoolmx/cbss-types";
+import { XmiId } from "@ebitoolmx/eclipse-types";
+import { extractXmiId } from "@ebitoolmx/ebitool-classic-types";
+import { isNotEmpty } from "@ebitoolmx/predicates";
 
-export function useInfrastructure() {
-  const store = useInfrastructureStore();
-  const trackItems = ref(store.trackItems);
+import { ToolType, ToolItemCategory } from "@/typings/tools.js";
+import { SplitView } from "@/typings/splitView.js";
+import { IndicatorType } from "@/typings/indicator.js";
+import { PlainSelection } from "@/typings/selection/PlainSelection.js";
+import { PlainHighlight } from "@/typings/highlight/PlainHighlight.js";
 
-  function removeTrackItem(item, trackId) {
-    store.removeTrackItem({ item, trackId });
+import AppDeletableIndicator from "@/components/common/indicator/DeletableIndicator.vue";
+import AppIndicator from "@/components/common/indicator/Indicator.vue";
+import AppPropertyContainer from "@/components/common/sidePanelElements/PropertyContainer.vue";
+import AppSearchProperties from "@/components/common/search/SearchProperties.vue";
+import AppIconButton from "@/components/common/icon/IconButton.vue";
+
+import { eventService, EventType } from "@/services/event.js";
+
+import { useInfrastructureStore } from "@/stores/infrastructure.js";
+import { useDiagramStore } from "@/stores/diagram.js";
+import { useEditorStore } from "@/stores/editor.js";
+import { isMXObjectIdentifier } from "@/typings/selection";
+
+defineOptions({ name: "TrackItemProperty" });
+
+const props = withDefaults(
+  defineProps<{
+    id: string;
+    value?: PropertyValue[];
+    availableValues?: PropertyValue[];
+    category?: string;
+  }>(),
+  {
+    value: () => [],
+    availableValues: () => [],
+    category: "Unknown",
   }
+);
 
-  return {
-    trackItems,
-    removeTrackItem
-  };
+const emit = defineEmits<{ change: [xmiIds: XmiId[]] }>();
+
+const { t } = useI18n();
+const editorStore = useEditorStore();
+const infrastructureStore = useInfrastructureStore();
+const diagramStore = useDiagramStore();
+
+const showAll = ref<boolean>(false);
+
+const isEditing = computed<boolean>(
+  () =>
+    diagramStore.selectedToolItem?.category === props.category &&
+    diagramStore.selectedToolItem.toolType === ToolType.PickerTool
+);
+
+const groupedTrackItems = computed<Array<Array<[PropertyValue, number]>>>(
+  () => {
+    const groupedByMileage = props.value.reduce(
+      (
+        acc: Record<string, Array<[PropertyValue, number]>>,
+        item: PropertyValue,
+        i: number
+      ) => {
+        const domainObject = infrastructureStore.getTrackItem(
+          item.objectIdentifier.id
+        );
+        const mileage = domainObject?.domain.position?.mileage;
+        if (mileage && !acc[mileage]) {
+          acc[mileage] = [];
+        }
+        if (mileage && acc[mileage]) {
+          acc[mileage].push([item, i + 1]);
+        }
+        return acc;
+      },
+      {}
+    );
+
+    const formattedArray = Object.values(groupedByMileage);
+    return formattedArray;
+  }
+);
+
+const currentIds = computed<string[]>(() =>
+  props.value.map((p) => extractXmiId(p.object.reference))
+);
+
+function getNodesToHighlight(propValues: PropertyValue[]): string[] {
+  const nodes = propValues.map((value) => value.objectIdentifier.id);
+
+  return nodes.filter(isNotEmpty);
 }
-```
 
-### Plan for Modifications:
+function isAllValuesHighlighted(): boolean {
+  if (editorStore.highlighted.isEmpty()) return false;
 
-1. **Update `infrastructure.ts` store** to properly remove track items from the specific track.
-2. **Ensure `removeTrackItem` method** in `TrackItemProperty.vue` triggers the correct store action.
-3. **Modify the highlight removal logic** to reflect the disassociation without deletion.
+  const nodesToHighlight = getNodesToHighlight(props.value).filter(Boolean);
 
-### Implement the Changes:
+  return nodesToHighlight.every((node) =>
+    editorStore.highlighted.expandedIds.includes(node)
+  );
+}
 
-```typescript
-// /mnt/data/infrastructure.ts
-import { defineStore } from 'pinia';
-import { ref } from 'vue';
+function isHighlighted(id: PropertyValue): boolean {
+  const [nodeToHighlight] = getNodesToHighlight([id]);
+  return editorStore.highlighted.includes(nodeToHighlight);
+}
 
-export const useInfrastructureStore = defineStore('infrastructure', () => {
-  const trackItems = ref([
-    // Example structure of trackItems
-    // { trackId: 1, items: [{ id: 1, name: 'DS_1' }, { id: 2, name: 'CS_1' }] },
-  ]);
+const highlight = (propValues: PropertyValue[]): void => {
+  const nodesToHighlight = getNodesToHighlight(propValues);
+  editorStore.toggleHighlighted(new PlainHighlight(nodesToHighlight));
+  eventService.emit(EventType.CenterHighlighted);
 
-  function removeTrackItem({ item, trackId }) {
-    const track = trackItems.value.find(t => t.trackId === trackId);
-    if (track) {
-      track.items = track.items.filter(i => i.id !== item.id);
+  for (const propValue of propValues) {
+    const layer = propValue.object.eClass;
+    diagramStore.setLayerVisibility([{ layer, visible: true }]);
+  }
+};
+
+const deleteSelected = (xmiId: XmiId): void => {
+  emit(
+    "change",
+    currentIds.value.filter((id) => id !== xmiId)
+  );
+  editorStore.setHighlighted(
+    new PlainHighlight(
+      editorStore.highlighted.filter((id: string) => id !== xmiId)
+    )
+  );
+
+  const newSelection = editorStore.selected.ids.filter((id) =>
+    isMXObjectIdentifier(id) ? id.id : id !== xmiId
+  );
+  editorStore.setSelected(new PlainSelection(newSelection));
+};
+
+const addSelected = (xmiId: XmiId): void => {
+  editorStore.setHighlighted(
+    new PlainHighlight([...editorStore.highlighted.expandedIds, xmiId])
+  );
+  emit("change", [...currentIds.value, xmiId]);
+};
+
+const addValue = (propValue: PropertyValue): void => {
+  const includeXmiId = extractXmiId(propValue.object.reference);
+  if (!currentIds.value.includes(includeXmiId)) addSelected(includeXmiId);
+};
+
+const deleteValue = (propValue: PropertyValue): void => {
+  const excludeXmiId = extractXmiId(propValue.object.reference);
+  // Call the infrastructureStore method to remove the track item association
+  infrastructureStore.removeTrackItemAssociation(excludeXmiId);
+  deleteSelected(excludeXmiId);
+};
+
+const toggleEdit = (): void => {
+  if (diagramStore.selectedToolItem?.category !== props.category) {
+    diagramStore.selectToolItem({
+      category: props.category as ToolItemCategory,
+      toolType: ToolType.PickerTool,
+      toolName: "MultiReferencePickerTool",
+    });
+
+    showAll.value = true;
+    if (!isAllValuesHighlighted()) {
+      highlight(props.value);
     }
+    return;
   }
 
-  return { trackItems, removeTrackItem };
+  diagramStore.selectToolItem(null);
+};
+
+const isEmpty = (): boolean => currentIds.value.length === 0;
+
+const toggleShowAll = (): void => {
+  showAll.value = !showAll.value;
+};
+
+const isSplitViewSelected = (): boolean =>
+  editorStore.isSplitViewShown(SplitView.Positions);
+
+const togglePositionsView = (): void => {
+  editorStore.toggleSplitView(SplitView.Positions);
+};
+
+const handleSidePanelToggle = (): void => {
+  if (isEditing.value) {
+    toggleEdit();
+  }
+};
+
+const selectItemGroup = (propValue: PropertyValue): void => {
+  const selection = new PlainSelection([propValue.objectIdentifier]);
+  editorStore.setSelected(selection);
+
+  const nodesToHighlight = getNodesToHighlight([propValue]);
+  editorStore.setHighlighted(new PlainHighlight(nodesToHighlight));
+
+  if (isHighlighted(propValue)) {
+    editorStore.setHighlighted(
+      new PlainHighlight(
+        editorStore.highlighted.filter(
+          (id: string) => id !== propValue.objectIdentifier.id
+        )
+      )
+    );
+  }
+};
+
+onMounted(() =>
+  eventService.on(EventType.ToggleSidePanel, handleSidePanelToggle)
+);
+
+onBeforeUnmount(() => {
+  if (diagramStore.selectedToolItem?.toolType === ToolType.PickerTool) {
+    diagramStore.selectToolItem(null);
+  }
 });
-```
-
-### Final Code:
-
-#### 1. Editor.vue (no changes needed here)
-
-#### 2. TrackItemProperty.vue
-
-```vue
-<template>
-  <div>
-    <span>{{ item.name }}</span>
-    <button @click="removeItem">x</button>
-  </div>
-</template>
-
-<script>
-export default {
-  name: 'TrackItemProperty',
-  props: {
-    item: Object,
-    trackId: Number
-  },
-  methods: {
-    removeItem() {
-      this.$emit('remove', this.item, this.trackId);
-    }
-  }
-};
 </script>
 ```
-
-#### 3. PropertiesEditor.vue
-
-```vue
-<template>
-  <div>
-    <PropertiesEditorContent :trackItems="trackItems" @remove="handleRemove" />
-  </div>
-</template>
-
-<script>
-import PropertiesEditorContent from './PropertiesEditorContent.vue';
-import { mapState } from 'vuex';
-
-export default {
-  name: 'PropertiesEditor',
-  components: { PropertiesEditorContent },
-  computed: {
-    ...mapState({
-      trackItems: state => state.infrastructure.trackItems
-    })
-  },
-  methods: {
-    handleRemove(item, trackId) {
-      this.$store.dispatch('infrastructure/removeTrackItem', { item, trackId });
-    }
-  }
-};
-</script>
-```
-
-#### 4. PropertiesEditorContent.vue
-
-```vue
-<template>
-  <div>
-    <TrackItemProperty
-      v-for="item in trackItems"
-      :key="item.id"
-      :item="item"
-      :trackId="trackId"
-      @remove="$emit('remove', $event)"
-    />
-  </div>
-</template>
-
-<script>
-import TrackItemProperty from './TrackItemProperty.vue';
-
-export default {
-  name: 'PropertiesEditorContent',
-  components: { TrackItemProperty },
-  props: {
-    trackItems: Array,
-    trackId: Number
-  }
-};
-</script>
-```
-
-#### 5. useInfrastructure.ts (no changes needed here)
-
-### Next Steps:
-
-**a.** Run the code and verify if the "x" button functionality correctly removes the item from the track without deleting it from the diagram.
-
-**b.** Add unit tests to validate the new feature ensuring it works as expected.
-
-Feel free to proceed with these steps or let me know if you need any further adjustments or explanations.
