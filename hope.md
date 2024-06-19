@@ -1,21 +1,28 @@
-```typescript
-// Add a new method to detach track item from its track
-const detachTrackItemFromTrack = (xmiId: XmiId): void => {
-  const trackItem = trackItems.value.find(item => item.xmiId === xmiId);
-  if (trackItem) {
-    // Detach the track item from its track
-    trackItem.domain.track = null;
-    eventService.emit(EventType.DomainObjectUpdated, xmiId);
-  }
-};
+### Understanding the Problem:
 
-return {
-  // existing state, getters, actions, mutations...
-  detachTrackItemFromTrack,
-};
+1. **Current State**: Clicking "x" deletes the track item completely from the diagram.
+2. **Desired State**: Clicking "x" should unassociate the item from the track (so it no longer belongs to the track), but it should still remain on the diagram. Upon refresh, the item should not reappear in the track item list.
 
-```
+### Solution Approach:
 
+1. **Unassociation Logic**:
+   - Modify the track item to remove its association with the track.
+   - Update the frontend state accordingly to reflect this change.
+
+2. **Preserving State**:
+   - Ensure that the state change is persisted so that it is maintained across refreshes.
+
+### Implementation Steps:
+
+1. **Modify `TrackItemProperty.vue`**:
+   - Ensure `deleteValue` only removes the association without deleting the item.
+   
+2. **Update `infrastructureStore`**:
+   - Add a method to update the track item's association.
+
+### Implementation:
+
+**1. Update `TrackItemProperty.vue`**:
 ```vue
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
@@ -172,11 +179,11 @@ const addValue = (propValue: PropertyValue): void => {
   if (!currentIds.value.includes(includeXmiId)) addSelected(includeXmiId);
 };
 
-// Updated deleteValue to detach the item from the track
-const deleteValue = (propValue: PropertyValue): void => {
+// Updated deleteValue to unassociate the item from the track
+const deleteValue = async (propValue: PropertyValue): Promise<void> => {
   const excludeXmiId = extractXmiId(propValue.object.reference);
-  // Call the infrastructureStore method to detach the track item from the track
-  infrastructureStore.detachTrackItemFromTrack(excludeXmiId);
+  // Call the infrastructureStore method to remove the track item association
+  await infrastructureStore.unassociateTrackItem(excludeXmiId);
   deleteSelected(excludeXmiId);
 };
 
@@ -245,5 +252,54 @@ onBeforeUnmount(() => {
   }
 });
 </script>
-
 ```
+
+**2. Update `infrastructureStore.ts`**:
+```typescript
+const unassociateTrackItem = async (xmiId: XmiId): Promise<void> => {
+  const trackItemIndex = trackItems.value.findIndex((item) => item.xmiId === xmiId);
+  if (trackItemIndex !== -1) {
+    const trackItem = trackItems.value[trackItemIndex];
+    // Update the track reference to null or remove it to unassociate
+    const updatedTrackItem = {
+      ...trackItem,
+      domain: {
+        ...trackItem.domain,
+        track: null // or remove the track reference property
+      }
+    };
+    trackItems.value.splice(trackItemIndex, 1, updatedTrackItem);
+    // Emit event to update the frontend
+    eventService.emit(EventType.DomainObjectUpdated, xmiId);
+    
+    // Update the backend
+    try {
+
+
+      await infrastructureService.submitEditRequests(productsStore.activeProductId, [
+        {
+          type: EditRequestType.Modify,
+          xmiId,
+          properties: {
+            "domain.track": null
+          }
+        }
+      ]);
+    } catch (err) {
+      loggingService.error('Failed to unassociate track item', { cause: err });
+      throw err;
+    }
+  }
+};
+
+return {
+  // existing state, getters, actions, mutations...
+  unassociateTrackItem,
+};
+```
+
+### Summary:
+1. Modified `TrackItemProperty.vue` to call the `unassociateTrackItem` method.
+2. Added `unassociateTrackItem` method in `infrastructureStore` to update the track item association in the frontend state and backend.
+
+This ensures that the track item is unassociated from the track but remains on the diagram and the state change is persisted. Let me know if there are any other adjustments needed!
