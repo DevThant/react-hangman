@@ -1,17 +1,19 @@
 ```typescript
-// Update infrastructureStore to handle the unassociation correctly
-const removeTrackItemAssociation = (xmiId: XmiId): void => {
+// Add a new method to detach track item from its track
+const detachTrackItemFromTrack = (xmiId: XmiId): void => {
   const trackItem = trackItems.value.find(item => item.xmiId === xmiId);
   if (trackItem) {
-    trackItem.trackId = null; // Remove the association
+    // Detach the track item from its track
+    trackItem.domain.track = null;
     eventService.emit(EventType.DomainObjectUpdated, xmiId);
   }
 };
 
 return {
   // existing state, getters, actions, mutations...
-  removeTrackItemAssociation,
+  detachTrackItemFromTrack,
 };
+
 ```
 
 ```vue
@@ -117,6 +119,9 @@ function isAllValuesHighlighted(): boolean {
 
   const nodesToHighlight = getNodesToHighlight(props.value).filter(Boolean);
 
+  // Returns true if all or more values are highlighted.
+  // selecting an area group should indicate that all items are highlighted.
+  // Even though the items belonging to the areas inside the group isn’t directly connected to the area group
   return nodesToHighlight.every((node) =>
     editorStore.highlighted.expandedIds.includes(node)
   );
@@ -167,10 +172,11 @@ const addValue = (propValue: PropertyValue): void => {
   if (!currentIds.value.includes(includeXmiId)) addSelected(includeXmiId);
 };
 
+// Updated deleteValue to detach the item from the track
 const deleteValue = (propValue: PropertyValue): void => {
   const excludeXmiId = extractXmiId(propValue.object.reference);
-  // Call the infrastructureStore method to remove the track item association
-  infrastructureStore.removeTrackItemAssociation(excludeXmiId);
+  // Call the infrastructureStore method to detach the track item from the track
+  infrastructureStore.detachTrackItemFromTrack(excludeXmiId);
   deleteSelected(excludeXmiId);
 };
 
@@ -239,4 +245,5 @@ onBeforeUnmount(() => {
   }
 });
 </script>
+
 ```
