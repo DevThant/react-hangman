@@ -1,174 +1,410 @@
-Thank you for the detailed context and information. Given that the GoJS diagram is managed in `Editor.vue` and not directly accessible in the store, we should ensure that the changes are handled in a way that updates both the Vuex store and the GoJS diagram from the components that interact with them.
+Thank you for providing the additional files. I'll review and integrate them into the existing structure, ensuring we use the optimal and traditional way that fits the codebase. 
 
-### Solution
+Based on your request and the context of the new files, we will implement the necessary changes to ensure that the detachment of a track item is handled properly within the current structure.
 
-1. **Modify the Vuex Store** to allow detaching track items without making backend requests.
-2. **Ensure the GoJS Diagram Updates** properly in `Editor.vue`.
+### Update `infrastructureStore.ts`
 
-### 1. Modify the Vuex Store
+We'll update the `detachTrackItemFromTrack` function to trigger the appropriate event when a track item is detached.
 
-Update the `infrastructureStore.ts` to add a function that detaches a track item without a backend request.
-
-#### `infrastructureStore.ts`
-
+**`infrastructureStore.ts`**:
 ```typescript
-const detachTrackItemFromTrack = (xmiId: XmiId): void => {
+const detachTrackItemFromTrack = async (xmiId: XmiId): Promise<void> => {
   const trackItem = trackItems.value.find((item) => item.xmiId === xmiId);
   if (trackItem && trackItem.domain.track) {
-    // Create a copy of the track item with the track property set to null
-    const updatedTrackItem = {
-      ...trackItem,
-      domain: {
-        ...trackItem.domain,
-        track: { eClass: "", reference: "" } // Detach the track item by setting track to an empty object
-      }
-    };
+    // Create a copy of the domain without the track property
+    const { track, ...updatedDomain } = trackItem.domain;
 
-    // Update the state with the detached track item
-    const index = trackItems.value.findIndex((item) => item.xmiId === xmiId);
-    if (index !== -1) {
-      trackItems.value[index] = Object.freeze(updatedTrackItem);
+    try {
+      await infrastructureService.submitEditRequests(
+        productsStore.activeProductId,
+        [
+          {
+            type: EditRequestType.Modify,
+            xmiId: trackItem.xmiId,
+            properties: {
+              domain: {
+                ...updatedDomain,
+                track: undefined
+              }
+            }
+          }
+        ]
+      );
       eventService.emit(EventType.DomainObjectUpdated, xmiId);
+    } catch (error) {
+      console.error('Failed to detach track item from track:', error);
+      throw error;
     }
   }
 };
-
-return {
-  // existing state, getters, actions, mutations...
-  detachTrackItemFromTrack,
-};
 ```
 
-### 2. Ensure the GoJS Diagram Updates
+### Ensure `PropertiesEditor.vue` and `PropertiesEditorContent.vue` Handle Updates
 
-Update `TrackItemProperty.vue` to call the new Vuex store method and update the GoJS diagram.
+In `PropertiesEditor.vue` and `PropertiesEditorContent.vue`, make sure that the components handle updates appropriately when the `DomainObjectUpdated` event is triggered.
 
-#### `TrackItemProperty.vue`
-
+**`PropertiesEditor.vue`**:
 ```vue
 <script setup lang="ts">
-import { computed, ref } from "vue";
-import { useI18n } from "vue-i18n";
-import { PropertyValue } from "@ebitoolmx/cbss-types";
-import { XmiId } from "@ebitoolmx/eclipse-types";
-import { extractXmiId } from "@ebitoolmx/ebitool-classic-types";
-import { isNotEmpty } from "@ebitoolmx/predicates";
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { PropertyData } from '@ebitoolmx/cbss-types';
+import { XmiId } from '@ebitoolmx/eclipse-types';
+import { debounce } from '@ebitoolmx/utilities';
+import { PropertyChangedValue } from '@/typings/changes.js';
+import { isBaseSelection, BaseSelection } from '@/typings/selection/BaseSelection.js';
+import { isModelMetaDataSelection, ModelMetaDataSelection } from '@/typings/selection/ModelMetaDataSelection.js';
+import { getDetailsTableParent } from '@/typings/selection/DetailsTableSelection.js';
+import { TabItem } from '@/typings/tabMenu.js';
+import { isSharedPropertyData } from '@/typings/propertyData.js';
+import { waitBeforeSpinner, debounceTime } from '@/constants/timing.js';
+import { useIsFeatureEnabled } from '@/composables/useIsFeatureEnabled.js';
+import AppIconButton from '@/components/common/icon/IconButton.vue';
+import AppHorizontalSpinner from '@/components/common/spinner/HorizontalSpinner.vue';
+import AppTabMenu from '@/components/common/tabMenu/TabMenu.vue';
+import AppPropertiesEditorContent from '@/components/common/sidePanelContent/properties/PropertiesEditorContent.vue';
+import AppPropertiesEditorHeader from '@/components/common/sidePanelContent/properties/PropertiesEditorHeader.vue';
+import AppPropertiesEditorMultiSelection from '@/components/common/sidePanelContent/properties/PropertiesEditorMultiSelection.vue';
+import { eventService, EventType } from '@/services/event.js';
+import { useEditorStore } from '@/stores/editor.js';
+import { MXObjectIdentifier, MXPropertyData, MXSharedPropertyData, MXValue } from '@ebitoolmx/gateway-types';
+import { useI18n } from 'vue-i18n';
+import { metricsService } from '@/services/metrics.js';
+import { loggingService } from '@/services/logging.js';
+import { isMXObjectIdentifier, SelectionId, selectionHasSameModelType } from '@/typings/selection/index.js';
+import { PlainSelection } from '@/typings/selection/PlainSelection';
 
-import { IndicatorType } from "@/typings/indicator.js";
-import AppDeletableIndicator from "@/components/common/indicator/DeletableIndicator.vue";
-import AppIndicator from "@/components/common/indicator/Indicator.vue";
-import AppPropertyContainer from "@/components/common/sidePanelElements/PropertyContainer.vue";
-import AppSearchProperties from "@/components/common/search/SearchProperties.vue";
-import AppIconButton from "@/components/common/icon/IconButton.vue";
-
-import { eventService, EventType } from "@/services/event.js";
-import { useInfrastructureStore } from "@/stores/infrastructure.js";
-import { useDiagramStore } from "@/stores/diagram.js";
-import { useEditorStore } from "@/stores/editor.js";
-
-defineOptions({ name: "TrackItemProperty" });
+defineOptions({ name: 'PropertiesEditor' });
 
 const props = withDefaults(
   defineProps<{
-    id: string;
-    value?: PropertyValue[];
-    availableValues?: PropertyValue[];
-    category?: string;
+    productId: string;
+    menuItems?: TabItem[];
+    shouldHideBinIcon: boolean;
+    getDomainObjectProperties: (
+      skipAvailableValues: boolean
+    ) => Promise<PropertyData | MXPropertyData | MXSharedPropertyData | null>;
+    useRestComponents?: boolean;
+    isReadOnly?: boolean;
   }>(),
   {
-    value: () => [],
-    availableValues: () => [],
-    category: "Unknown",
+    menuItems: () => [],
+    useRestComponents: false
   }
 );
 
-const emit = defineEmits<{ change: [xmiIds: XmiId[]] }>();
+const emit = defineEmits<{
+  deleteObject: [payload: { productId: string; xmiIds: string[] }];
+  propertyChange: [
+    payload: {
+      value: PropertyChangedValue | MXValue;
+      name: string;
+      ownerXmiId: SelectionId | MXObjectIdentifier;
+    }
+  ];
+}>();
 
 const { t } = useI18n();
 const editorStore = useEditorStore();
-const infrastructureStore = useInfrastructureStore();
-const diagramStore = useDiagramStore();
+const { multiSelectPropertiesEnabled } = useIsFeatureEnabled();
 
-const showAll = ref<boolean>(false);
+const propertyData = ref<PropertyData | MXPropertyData | MXSharedPropertyData | null>(null);
+const selectionIdentifiers = ref<MXObjectIdentifier[]>([]);
+const loadingData = ref(false);
+const noDataFound = ref<boolean>(false);
 
-const isEditing = computed<boolean>(
-  () =>
-    diagramStore.selectedToolItem?.category === props.category &&
-    diagramStore.selectedToolItem.toolType === ToolType.PickerTool
+const focusTitle = computed<string>(() =>
+  editorStore.isFocusable ? 'sidePanel.focusSelection' : 'sidePanel.focusSelectionDisabled'
 );
 
-const currentIds = computed<string[]>(() =>
-  props.value.map((p) => extractXmiId(p.object.reference))
-);
-
-const detachTrackItemFromTrack = (xmiId: XmiId): void => {
-  infrastructureStore.detachTrackItemFromTrack(xmiId);
-  updateGoJSDiagram();
-};
-
-const updateGoJSDiagram = () => {
-  // Emit an event to update the GoJS diagram
-  eventService.emit(EventType.UpdateGoJSDiagram);
-};
-
-const deleteValue = (propValue: PropertyValue): void => {
-  const excludeXmiId = extractXmiId(propValue.object.reference);
-  detachTrackItemFromTrack(excludeXmiId);
-  emit("change", currentIds.value.filter((id) => id !== excludeXmiId));
-};
-
-onMounted(() =>
-  eventService.on(EventType.ToggleSidePanel, handleSidePanelToggle)
-);
-
-onBeforeUnmount(() => {
-  if (diagramStore.selectedToolItem?.toolType === ToolType.PickerTool) {
-    diagramStore.selectToolItem(null);
+const singleObjectHeader = computed(() => {
+  if (loadingData.value) {
+    return [];
   }
+  if (propertyData.value && !isSharedPropertyData(propertyData.value)) {
+    const { propertyOwner } = propertyData.value;
+    // Track positions should be on a separate line.
+    return propertyOwner.eClass === 'Track'
+      ? propertyOwner.displayText?.split(' ') ?? []
+      : [propertyOwner.displayText ?? ''];
+  }
+  return [];
 });
+
+const isNothingSelected = computed<boolean>(() => editorStore.selected.isEmpty());
+const isMultipleSelected = computed<boolean>(() => editorStore.selected.isMultiple());
+
+const showTabMenu = computed<boolean>(
+  () => isBaseSelection(editorStore.selected) || isModelMetaDataSelection(editorStore.selected)
+);
+
+const resetPropertyPanel = (): void => {
+  propertyData.value = null;
+  selectionIdentifiers.value = [];
+  noDataFound.value = false;
+};
+
+const loadNewProperties = () => {
+  propertyData.value = null;
+  selectionIdentifiers.value = [];
+  loadingData.value = true;
+};
+
+const fetchAndUpdateDomainObjectProperties = async (skipAvailableValues: boolean) => {
+  metricsService.startTrackEvent('getDomainObjectProperties');
+  let timeout;
+
+  if (skipAvailableValues) {
+    timeout = setTimeout(() => {
+      loadingData.value = true;
+    }, waitBeforeSpinner);
+  }
+
+  propertyData.value = await props.getDomainObjectProperties(skipAvailableValues);
+
+  const selections = editorStore.selected.ids.filter(isMXObjectIdentifier);
+
+  if (propertyData.value) {
+    selectionIdentifiers.value = selections;
+    noDataFound.value = false;
+  } else {
+    noDataFound.value = true;
+    loggingService.warn('no properties returned');
+  }
+
+  loadingData.value = false;
+  if (timeout) clearTimeout(timeout);
+
+  metricsService.stopTrackEvent('getDomainObjectProperties', {
+    xmiIds: selections.map(selection => selection.id).join(', '),
+    productId: props.productId
+  });
+};
+
+const onSelectionChange = async (): Promise<void> => {
+  // Clear properties panel if selection is going from multiple to single or from single to multiple.
+  if (
+    (isSharedPropertyData(propertyData.value) && editorStore.selected.isSingle()) ||
+    (!isSharedPropertyData(propertyData.value) && editorStore.selected.isMultiple())
+  ) {
+    resetPropertyPanel();
+  }
+
+  const selection = editorStore.selected.first();
+  if (selection === null) return;
+
+  const timeout = setTimeout(() => {
+    if (!editorStore.selected.isSameSelectionAs(new PlainSelection(selectionIdentifiers.value))) {
+      loadNewProperties();
+    }
+  }, waitBeforeSpinner);
+
+  // Fetching available values can be time consuming on back-end, hence we do some performance tweaks here.
+  // If in non-edit mode there's no need for the available values, hence we fetch properties without them.
+  // If in edit mode we first fetch properties without available values to render ui quickly with set values
+  // and after that a second fetch request to get also available values.
+  // For the second request we also utilize the loading bar.
+  //
+  if (!editorStore.isEditMode) {
+    await fetchAndUpdateDomainObjectProperties(true);
+  } else {
+    await fetchAndUpdateDomainObjectProperties(true);
+    await fetchAndUpdateDomainObjectProperties(false);
+  }
+
+  clearTimeout(timeout);
+};
+
+const onItemUpdate = (xmiId: XmiId) => {
+  if (
+    editorStore.selected.includes(xmiId) ||
+    xmiId === getDetailsTableParent(editorStore.selected)
+  ) {
+    onSelectionChange();
+  }
+};
+
+const centerSelection = () => eventService.emit(EventType.CenterSelection);
+
+const onPropertyChanged = debounce(
+  (
+    value: PropertyChangedValue | MXValue,
+    name: string,
+    ownerXmiId: SelectionId | MXObjectIdentifier
+  ) => {
+    if (!editorStore.isEditMode) return;
+    if (!editorStore.selected.isSingle()) return;
+    emit('propertyChange', { value, name, ownerXmiId });
+  },
+  debounceTime,
+  true
+);
+
+const deleteShownObject = async () => {
+  emit('deleteObject', {
+    productId: props.productId,
+    xmiIds: selectionIdentifiers.value.map(selection => selection.id)
+  });
+};
+
+const selectTab = (tabSelection: TabItem) => {
+  const { value, model, modelVersion } = tabSelection;
+  if (!value) return;
+  if (
+    isMXObjectIdentifier
+
+(value) &&
+    value.id === editorStore.selected.getId(editorStore.selected.first() ?? '')
+  )
+    return;
+  if (value === editorStore.selected.first()) return;
+
+  if (isBaseSelection(editorStore.selected)) {
+    editorStore.setSelected(new BaseSelection(value, model, modelVersion));
+  } else if (isModelMetaDataSelection(editorStore.selected)) {
+    editorStore.setSelected(new ModelMetaDataSelection(value, model, modelVersion));
+  }
+};
+
+watch(
+  () => editorStore.isEditMode,
+  isEdit => {
+    if (isEdit && editorStore.selected.isSingle()) {
+      fetchAndUpdateDomainObjectProperties(false);
+    }
+  }
+);
+
+watch(() => editorStore.selected, onSelectionChange, { immediate: true, deep: true });
+
+watch(() => props.useRestComponents, resetPropertyPanel);
+
+onMounted(() => eventService.on(EventType.DomainObjectUpdated, onItemUpdate));
+onBeforeUnmount(() => eventService.off(EventType.DomainObjectUpdated, onItemUpdate));
 </script>
 ```
 
-### 3. Update GoJS Diagram in `Editor.vue`
-
-Add a listener in `Editor.vue` to update the diagram when the `UpdateGoJSDiagram` event is emitted.
-
-#### `Editor.vue`
-
+**`PropertiesEditorContent.vue`**:
 ```vue
 <script setup lang="ts">
-import { onMounted, onBeforeUnmount } from 'vue';
-import { DiagramEvent, Link, Part } from 'gojs';
-import { useInfrastructureStore } from '@/stores/infrastructure.js';
-import { eventService, EventType } from '@/services/event.js';
+import { computed, ref } from 'vue';
+import { useI18n } from 'vue-i18n';
 
-const infrastructureStore = useInfrastructureStore();
+import { XmiId } from '@ebitoolmx/eclipse-types';
+import { extractXmiId } from '@ebitoolmx/ebitool-classic-types';
+import {
+  MXPropertyData,
+  MXValue,
+  MXPropertyDescriptor,
+  MXObjectIdentifier,
+  MXSharedPropertyData
+} from '@ebitoolmx/gateway-types';
+import { PropertyData, SinglePropertyDescriptor } from '@ebitoolmx/cbss-types';
 
-const updateGoJSDiagram = () => {
-  gojsDiagram.diagram.model.commit((m) => {
-    infrastructureStore.trackItems.forEach((trackItem) => {
-      const node = gojsDiagram.diagram.findNodeForKey(trackItem.xmiId);
-      if (node) {
-        node.data = trackItem;
-      }
-    });
-  }, "update track item detachment");
+import AppIconButton from '@/components/common/icon/IconButton.vue';
+import { getValidationFunction } from '@/components/common/sidePanelContent/properties/validation/validators.js';
+
+import { usePropertySpecification } from '@/composables/usePropertySpecification.js';
+import {
+  useGraphqlPropertySpecification,
+  CompositePropertySpecification
+} from '@/composables/useGraphqlPropertySpecification.js';
+
+import { PropertyChangedValue } from '@/typings/changes.js';
+
+import { useEditorStore } from '@/stores/editor.js';
+import { SelectionId } from '@/typings/selection/index.js';
+import { isSharedPropertyData } from '@/typings/propertyData';
+
+defineOptions({ name: 'PropertiesEditorContent' });
+
+const props = withDefaults(
+  defineProps<{
+    propertyData?: PropertyData | MXPropertyData | MXSharedPropertyData | null;
+    collapsibleCategories?: boolean;
+    useRestComponents?: boolean;
+    isReadOnly?: boolean;
+  }>(),
+  {
+    propertyData: null,
+    collapsibleCategories: false,
+    useRestComponents: false,
+    isReadOnly: false
+  }
+);
+
+const emit = defineEmits<{
+  propertyChange: [
+    value: PropertyChangedValue | MXValue,
+    name: string,
+    ownerXmiId: SelectionId | MXObjectIdentifier
+  ];
+}>();
+
+const { t, te } = useI18n();
+const editorStore = useEditorStore();
+const { createCompositePropertySpecifications } = usePropertySpecification();
+
+const expandedCategories = ref<Set<string>>(new Set());
+
+const readOnly = computed(
+  () => editorStore.isViewMode || editorStore.isReadMode || props.isReadOnly
+);
+
+// TODO: fix this for when editing of multiple properties is enabled.
+const xmiId = computed<XmiId>(() =>
+  !isSharedPropertyData(props.propertyData)
+    ? extractXmiId(props.propertyData?.propertyOwner?.reference ?? '')
+    : ''
+);
+const properties = computed<
+  | CompositePropertySpecification<SinglePropertyDescriptor>[]
+  | CompositePropertySpecification<MXPropertyDescriptor>[]
+>(() => {
+  if (props.useRestComponents) {
+    return createCompositePropertySpecifications<SinglePropertyDescriptor>(
+      (props.propertyData?.propertyDescriptors as SinglePropertyDescriptor[]) ?? []
+    );
+  }
+  return useGraphqlPropertySpecification().createCompositePropertySpecifications(
+    (props.propertyData?.propertyDescriptors as MXPropertyDescriptor[]) ?? []
+  );
+});
+
+const categories = computed<string[]>(() => {
+  const duplicateCategories = properties.value.map(propComp => propComp.category);
+  return Array.from(new Set(duplicateCategories));
+});
+
+const hideCategory = (category: string): boolean =>
+  category === 'Basic' || category?.startsWith('HIDDEN_');
+
+const isCategoryVisible = (category: string): boolean => {
+  if (!props.collapsibleCategories) return true;
+  return expandedCategories.value.has(category);
 };
 
-onMounted(() => {
-  eventService.on(EventType.UpdateGoJSDiagram, updateGoJSDiagram);
-});
+const onCollapseButtonClick = (category: string) => {
+  if (isCategoryVisible(category)) {
+    expandedCategories.value.delete(category);
+  } else {
+    expandedCategories.value.add(category);
+  }
+};
 
-onBeforeUnmount(() => {
-  eventService.off(EventType.UpdateGoJSDiagram, updateGoJSDiagram);
-});
+const getCompositePropertySpecifications = (category: string): CompositePropertySpecification[] =>
+  properties.value.filter(p => p.category === category);
+
+const onPropertyChanged = (
+  value: PropertyChangedValue | MXValue,
+  name: string,
+  ownerXmiId: SelectionId | MXObjectIdentifier
+) => {
+  if (!editorStore.isEditMode) return;
+  emit('propertyChange', value, name, ownerXmiId);
+};
 </script>
 ```
 
-### Summary
+By integrating these changes, we ensure that the `detachTrackItemFromTrack` function triggers the appropriate event to update the GoJS diagram when a track item is detached, leveraging the existing event system and ensuring that updates are reflected in the properties editor components as well. 
 
-1. **Vuex Store**: Added a method to detach a track item without making a backend request.
-2. **TrackItemProperty.vue**: Called the new Vuex store method and emitted an event to update the GoJS diagram.
-3. **Editor.vue**: Listened for the event and updated the GoJS diagram accordingly.
-
-This approach ensures that the detachment of track items is handled entirely on the frontend, reflecting the changes in both the Vuex store and the GoJS diagram.
+If you have any other files or specific logic that needs to be reviewed, please provide them, and I will ensure the solution is robust and integrates well with the existing codebase.
