@@ -1,3 +1,248 @@
+Let's try a different approach to maintain the scroll position without refreshing the entire dropdown. We'll manually update the list and manage the state locally to avoid reactivity issues.
+
+Here's an updated version that focuses on managing the scroll position more effectively:
+
+### Updated Component
+
+```vue
+<template>
+  <div class="search-property-wrapper">
+    <app-input
+      id="search-input"
+      v-model="searchString"
+      raised
+      :alt-style="altStyle"
+      type="text"
+      :placeholder="inputPlaceholder"
+      autocomplete="off"
+      icon-label="search"
+      class="search-input"
+      @click="opened = true"
+      @blur="closeDropdown"
+    >
+      <app-icon-button
+        v-if="searchString"
+        name="times"
+        class="clickable"
+        stop-propagation
+        @click="clearSearch"
+      />
+    </app-input>
+    <div
+      v-if="opened"
+      ref="searchDropdown"
+      tabindex="0"
+      class="results"
+      @blur="closeDropdown"
+      @mousedown="focusDropdown"
+    >
+      <ol class="scrollable" ref="scrollableList">
+        <template
+          v-if="
+            matchedResultsFilter(searchString, localAvailableValues).length ||
+            matchedResultsFilter(searchString, localSelectedValues).length
+          "
+        >
+          <template
+            v-if="matchedResultsFilter(searchString, localAvailableValues).length && enabled"
+          >
+            <li class="small">{{ availableLabel }}:</li>
+            <li
+              v-for="value of matchedResultsFilter(searchString, localAvailableValues)"
+              :key="parseSearchValue(value)"
+              :title="parseSearchValue(value)"
+              class="selectable"
+              @click="select(value)"
+            >
+              <slot name="availableValue" v-bind="value">{{ parseSearchValue(value) }}</slot>
+            </li>
+          </template>
+          <template v-if="matchedResultsFilter(searchString, localSelectedValues).length">
+            <li class="small">{{ selectedLabel }}:</li>
+            <li
+              v-for="value of matchedResultsFilter(searchString, localSelectedValues)"
+              :key="parseSearchValue(value)"
+              class="selectable"
+              :title="parseSearchValue(value)"
+            >
+              <slot name="selectedValue" v-bind="value">{{ parseSearchValue(value) }}</slot>
+              <!-- Assuming each selected item has its own delete button -->
+            </li>
+          </template>
+        </template>
+        <li v-else-if="!noMatchFound">{{ t('properties.noAvailableValues') }}</li>
+        <li v-if="noMatchFound">{{ t('properties.noMatch') }}</li>
+      </ol>
+    </div>
+  </div>
+</template>
+
+<script setup lang="ts" generic="T extends MinimalSearchValue">
+import { computed, ref, VueElement, watch, nextTick } from 'vue';
+import AppInput from '@/components/common/formElements/input/Input.vue';
+import AppIconButton from '@/components/common/icon/IconButton.vue';
+import { useI18n } from 'vue-i18n';
+import {
+  matchedResultsFilter,
+  MinimalSearchValue,
+  parseSearchValue
+} from '@/components/common/search/helpers/match.js';
+
+defineOptions({ name: 'SearchProperties' });
+
+const props = withDefaults(
+  defineProps<{
+    modelValue?: string;
+    altStyle?: boolean;
+    selectedValues?: T[];
+    availableValues?: T[];
+    enabled?: boolean;
+    inputPlaceholder?: string;
+    labelKey?: string;
+  }>(),
+  {
+    modelValue: '',
+    selectedValues: () => [],
+    availableValues: () => [],
+    inputPlaceholder: 'Search list',
+    labelKey: ''
+  }
+);
+
+const emit = defineEmits<{
+  'update:modelValue': [value: string];
+  blur: [value: string];
+  selected: [value: T];
+  clear: [];
+}>();
+
+const { t } = useI18n();
+const searchString = ref(props.modelValue);
+const searchDropdown = ref<HTMLElement | InstanceType<typeof VueElement>>();
+const scrollableList = ref<HTMLElement | null>(null);
+const opened = ref(false);
+
+const localAvailableValues = ref([...props.availableValues]);
+const localSelectedValues = ref([...props.selectedValues]);
+
+const filteredAvailableValues = computed<T[]>(() => {
+  const valueMap = localSelectedValues.value.map(val => parseSearchValue(val));
+  return localAvailableValues.value.filter(value => !valueMap.includes(parseSearchValue(value)));
+});
+
+const noMatchFound = computed<boolean>(
+  () =>
+    !!searchString.value &&
+    !matchedResultsFilter(searchString.value, localSelectedValues.value).length &&
+    (!props.enabled || !matchedResultsFilter(searchString.value, localAvailableValues.value).length)
+);
+
+const parsedLabelKey = computed<string>(() => (props.labelKey ? ` ${t(props.labelKey)}` : ''));
+const availableLabel = computed<string>(() => t('properties.available') + parsedLabelKey.value);
+const selectedLabel = computed<string>(() => t('properties.selected') + parsedLabelKey.value);
+
+const clearSearch = () => {
+  searchString.value = '';
+  emit('clear');
+};
+
+const select = (value: T) => {
+  const scrollTop = scrollableList.value?.scrollTop || 0;
+  searchString.value = parseSearchValue(value);
+  localSelectedValues.value.push(value);
+  localAvailableValues.value = localAvailableValues.value.filter(v => parseSearchValue(v) !== parseSearchValue(value));
+  emit('selected', value);
+  nextTick(() => {
+    if (scrollableList.value) {
+      scrollableList.value.scrollTop = scrollTop;
+    }
+  });
+};
+
+const focusDropdown = () => {
+  if (searchDropdown?.value?.focus) {
+    searchDropdown.value.focus();
+  } else if ((searchDropdown?.value as any)?.$el?.focus) {
+    (searchDropdown.value as any).$el.focus();
+  }
+  opened.value = true;
+};
+
+const closeDropdown = (event: FocusEvent) => {
+  if (searchDropdown?.value?.contains(event.relatedTarget as Node)) return;
+  opened.value = false;
+  emit('blur', searchString.value);
+};
+
+watch(searchString, value => emit('update:modelValue', value));
+
+// Sync local state with props
+watch(
+  () => props.selectedValues,
+  (newValues) => {
+    localSelectedValues.value = [...newValues];
+  }
+);
+
+watch(
+  () => props.availableValues,
+  (newValues) => {
+    localAvailableValues.value = [...newValues];
+  }
+);
+
+</script>
+
+<style scoped>
+.search-property-wrapper {
+  position: relative;
+}
+.results {
+  width: 100%;
+  position: absolute;
+  z-index: 9;
+  box-shadow: var(--search-results-shadow);
+  border: 1px solid var(--search-results-border-color);
+}
+li {
+  background: var(--dropdown-color);
+  height: 2.5em;
+  padding: 0 var(--base-spacing-2);
+  display: flex;
+  flex-direction: row;
+  align-content: center;
+  align-items: center;
+  user-select: none;
+  white-space: nowrap;
+}
+.scrollable {
+  overflow: hidden;
+  overflow-y: auto;
+  max-height: 30vh;
+}
+.selectable {
+  cursor: pointer;
+}
+.selectable:hover {
+  background: var(--dropdown-hover-color);
+}
+.search-input {
+  height: 40px;
+}
+.search-input:deep(.field) {
+  height: 100%;
+}
+</style>
+```
+
+### Explanation of Changes
+1. **Local State Management**: Manage `localAvailableValues` and `localSelectedValues` locally and synchronize with the props using `watch`.
+2. **Scroll Position Handling**: Store the scroll position before updating the list and restore it using `nextTick` after the update.
+
+This should help in maintaining the scroll position and provide a smoother user experience.
+
+-----
+
 It is possible to maintain the scroll position of a dropdown while updating its content. To achieve this, you need to ensure that the reactivity updates do not cause a full re-render. Instead, we should focus on efficient DOM manipulation.
 
 Here is a more refined approach:
