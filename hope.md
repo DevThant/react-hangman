@@ -1,3 +1,239 @@
+It is possible to maintain the scroll position of a dropdown while updating its content. To achieve this, you need to ensure that the reactivity updates do not cause a full re-render. Instead, we should focus on efficient DOM manipulation.
+
+Here is a more refined approach:
+
+1. **Store Scroll Position**: Before updating the list, store the current scroll position.
+2. **Update List**: Perform the necessary updates to the list (e.g., removing an item).
+3. **Restore Scroll Position**: Restore the scroll position to where it was before the update.
+
+### Updated Component
+
+```vue
+<template>
+  <div class="search-property-wrapper">
+    <app-input
+      id="search-input"
+      v-model="searchString"
+      raised
+      :alt-style="altStyle"
+      type="text"
+      :placeholder="inputPlaceholder"
+      autocomplete="off"
+      icon-label="search"
+      class="search-input"
+      @click="opened = true"
+      @blur="closeDropdown"
+    >
+      <app-icon-button
+        v-if="searchString"
+        name="times"
+        class="clickable"
+        stop-propagation
+        @click="clearSearch"
+      />
+    </app-input>
+    <div
+      v-if="opened"
+      ref="searchDropdown"
+      tabindex="0"
+      class="results"
+      @blur="closeDropdown"
+      @mousedown="focusDropdown"
+    >
+      <ol class="scrollable" ref="scrollableList">
+        <template
+          v-if="
+            matchedResultsFilter(searchString, filteredAvailableValues).length ||
+            matchedResultsFilter(searchString, selectedValues).length
+          "
+        >
+          <template
+            v-if="matchedResultsFilter(searchString, filteredAvailableValues).length && enabled"
+          >
+            <li class="small">{{ availableLabel }}:</li>
+            <li
+              v-for="value of matchedResultsFilter(searchString, filteredAvailableValues)"
+              :key="parseSearchValue(value)"
+              :title="parseSearchValue(value)"
+              class="selectable"
+              @click="select(value)"
+            >
+              <slot name="availableValue" v-bind="value">{{ parseSearchValue(value) }}</slot>
+            </li>
+          </template>
+          <template v-if="matchedResultsFilter(searchString, selectedValues).length">
+            <li class="small">{{ selectedLabel }}:</li>
+            <li
+              v-for="value of matchedResultsFilter(searchString, selectedValues)"
+              :key="parseSearchValue(value)"
+              class="selectable"
+              :title="parseSearchValue(value)"
+            >
+              <slot name="selectedValue" v-bind="value">{{ parseSearchValue(value) }}</slot>
+            </li>
+          </template>
+        </template>
+        <li v-else-if="!noMatchFound">{{ t('properties.noAvailableValues') }}</li>
+        <li v-if="noMatchFound">{{ t('properties.noMatch') }}</li>
+      </ol>
+    </div>
+  </div>
+</template>
+
+<script setup lang="ts" generic="T extends MinimalSearchValue">
+import { computed, ref, VueElement, watch, nextTick } from 'vue';
+import AppInput from '@/components/common/formElements/input/Input.vue';
+import AppIconButton from '@/components/common/icon/IconButton.vue';
+import { useI18n } from 'vue-i18n';
+import {
+  matchedResultsFilter,
+  MinimalSearchValue,
+  parseSearchValue
+} from '@/components/common/search/helpers/match.js';
+
+defineOptions({ name: 'SearchProperties' });
+
+const props = withDefaults(
+  defineProps<{
+    modelValue?: string;
+    altStyle?: boolean;
+    selectedValues?: T[];
+    availableValues?: T[];
+    enabled?: boolean;
+    inputPlaceholder?: string;
+    labelKey?: string;
+  }>(),
+  {
+    modelValue: '',
+    selectedValues: () => [],
+    availableValues: () => [],
+    inputPlaceholder: 'Search list',
+    labelKey: ''
+  }
+);
+
+const emit = defineEmits<{
+  'update:modelValue': [value: string];
+  blur: [value: string];
+  selected: [value: T];
+  clear: [];
+  remove: [value: T];
+}>();
+
+const { t } = useI18n();
+const searchString = ref(props.modelValue);
+const searchDropdown = ref<HTMLElement | InstanceType<typeof VueElement>>();
+const scrollableList = ref<HTMLElement | null>(null);
+const opened = ref(false);
+
+const filteredAvailableValues = computed<T[]>(() => {
+  const valueMap = props.selectedValues.map(val => parseSearchValue(val));
+  return props.availableValues.filter(value => !valueMap.includes(parseSearchValue(value)));
+});
+
+const noMatchFound = computed<boolean>(
+  () =>
+    !!searchString.value &&
+    !matchedResultsFilter(searchString.value, props.selectedValues).length &&
+    (!props.enabled || !matchedResultsFilter(searchString.value, props.availableValues).length)
+);
+
+const parsedLabelKey = computed<string>(() => (props.labelKey ? ` ${t(props.labelKey)}` : ''));
+const availableLabel = computed<string>(() => t('properties.available') + parsedLabelKey.value);
+const selectedLabel = computed<string>(() => t('properties.selected') + parsedLabelKey.value);
+
+const clearSearch = () => {
+  searchString.value = '';
+  emit('clear');
+};
+
+const select = (value: T) => {
+  searchString.value = parseSearchValue(value);
+  emit('selected', value);
+};
+
+const focusDropdown = () => {
+  if (searchDropdown?.value?.focus) {
+    searchDropdown.value.focus();
+  } else if ((searchDropdown?.value as any)?.$el?.focus) {
+    (searchDropdown.value as any).$el.focus();
+  }
+  opened.value = true;
+};
+
+const closeDropdown = (event: FocusEvent) => {
+  if (searchDropdown?.value?.contains(event.relatedTarget as Node)) return;
+  opened.value = false;
+  emit('blur', searchString.value);
+};
+
+watch(searchString, value => emit('update:modelValue', value));
+
+// Watch for updates to the selected values and maintain scroll position
+watch(
+  () => props.selectedValues,
+  (newValues, oldValues) => {
+    if (scrollableList.value) {
+      const scrollTop = scrollableList.value.scrollTop;
+      nextTick(() => {
+        scrollableList.value.scrollTop = scrollTop;
+      });
+    }
+  }
+);
+
+</script>
+
+<style scoped>
+.search-property-wrapper {
+  position: relative;
+}
+.results {
+  width: 100%;
+  position: absolute;
+  z-index: 9;
+  box-shadow: var(--search-results-shadow);
+  border: 1px solid var(--search-results-border-color);
+}
+li {
+  background: var(--dropdown-color);
+  height: 2.5em;
+  padding: 0 var(--base-spacing-2);
+  display: flex;
+  flex-direction: row;
+  align-content: center;
+  align-items: center;
+  user-select: none;
+  white-space: nowrap;
+}
+.scrollable {
+  overflow: hidden;
+  overflow-y: auto;
+  max-height: 30vh;
+}
+.selectable {
+  cursor: pointer;
+}
+.selectable:hover {
+  background: var(--dropdown-hover-color);
+}
+.search-input {
+  height: 40px;
+}
+.search-input:deep(.field) {
+  height: 100%;
+}
+</style>
+```
+
+### Explanation of Changes
+1. **State Management**: Directly use `props.selectedValues` and `props.availableValues` to ensure minimal state management.
+2. **Scroll Position Handling**: Use a `watch` function to monitor changes to `props.selectedValues`. Before the update, store the current scroll position, and after the update, restore it using `nextTick`.
+
+This approach ensures that the scroll position is maintained even when the list updates, providing a smoother user experience.
+
+
+----
 Understood. Let's refine the approach further by ensuring that the dropdown remains in its current state without fully re-rendering. We will focus on managing the reactivity and state changes efficiently.
 
 Here is an updated version of the component without the redundant `remove` function and `app-icon-button`. We'll ensure that only the necessary parts of the dropdown are updated when changes occur.
