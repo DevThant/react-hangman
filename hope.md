@@ -1,3 +1,67 @@
+You're right about the issues with the `focusEvent` function. It's not being used, and the typo with `.closet` instead of `.closest` would indeed cause an error.
+
+Let's correct these issues by integrating the correct event handling directly into the component lifecycle without the unused `focusEvent` function. Here's a revised approach focusing directly on handling clicks and keydown events properly:
+
+```javascript
+<script setup lang="ts" generic="T extends MinimalSearchValue">
+import { ref, onMounted, onBeforeUnmount } from 'vue';
+import AppInput from '@/components/common/formElements/input/Input.vue';
+import AppIconButton from '@/components/common/icon/IconButton.vue';
+import { useI18n } from 'vue-i18n';
+import {
+  matchedResultsFilter,
+  MinimalSearchValue,
+  parseSearchValue
+} from '@/components/common/search/helpers/match.js';
+
+defineOptions({ name: 'SearchProperties' });
+
+// Your existing props, emit, and other constants setup here ...
+
+const opened = ref(false);
+const searchDropdown = ref<HTMLElement | null>(null);
+
+const focusDropdown = () => {
+  opened.value = true;
+};
+
+const closeDropdown = () => {
+  opened.value = false;
+};
+
+const checkClickOutside = (event) => {
+  if (searchDropdown.value && !searchDropdown.value.contains(event.target as Node) && opened.value) {
+    closeDropdown();
+  }
+};
+
+onMounted(() => {
+  document.addEventListener('click', checkClickOutside);
+  window.addEventListener('keydown', (event) => {
+    if (event.key === "Escape") {
+      closeDropdown();
+    }
+  });
+});
+
+onBeforeUnmount(() => {
+  document.removeEventListener('click', checkClickOutside);
+  window.removeEventListener('keydown', closeDropdown);
+});
+
+// Remaining part of your script...
+</script>
+```
+
+### Adjustments:
+
+1. **Removed Unused Function**: The `focusEvent` function was removed.
+2. **Click Handling**: The `checkClickOutside` function now checks if a click is outside the search dropdown and closes it if so.
+3. **Keydown Event**: Listens for the Escape key to close the dropdown.
+
+This setup keeps the dropdown open when interacting with items inside it and only closes it when clicking outside or pressing the Escape key, aligning with your initial requirements.
+
+------
 To keep the dropdown of your search bar open during interactions inside it and only close when the user clicks outside or presses ESC, you need to adjust the `@blur` event handling. Specifically, you should modify the `closeDropdown` method to better handle the focus state. Here's a revised version of your script with the necessary changes:
 
 ### Adjustments in `<template>`:
