@@ -1,3 +1,77 @@
+To keep the dropdown of your search bar open during interactions inside it and only close when the user clicks outside or presses ESC, you need to adjust the `@blur` event handling. Specifically, you should modify the `closeDropdown` method to better handle the focus state. Here's a revised version of your script with the necessary changes:
+
+### Adjustments in `<template>`:
+
+1. Remove `@blur="closeDropdown"` from the `<app-input>` component.
+2. Adjust the `@blur` handler in the `div` containing the class "results" to check if the focus has moved outside the dropdown.
+
+### Updated `<script setup>` section:
+
+```javascript
+<script setup lang="ts" generic="T extends MinimalSearchValue">
+import { computed, ref, onMounted, onBeforeUnmount } from 'vue';
+import AppInput from '@/components/common/formElements/input/Input.vue';
+import AppIconButton from '@/components/common/icon/IconButton.vue';
+import { useI18n } from 'vue-i18n';
+import {
+  matchedResultsFilter,
+  MinimalSearchValue,
+  parseSearchValue
+} from '@/components/common/search/helpers/match.js';
+
+defineOptions({ name: 'SearchProperties' });
+
+// Your existing props, emit, and other constants setup here ...
+
+const opened = ref(false);
+const searchDropdown = ref<HTMLElement | null>(null);
+const focusEvent = (e: FocusEvent) => {
+  if (!searchDropdown.value || !(e.relatedTarget as Node).closest('.search-property-wrapper')) {
+    closeDropdown();
+  }
+};
+
+const focusDropdown = () => {
+  opened.value = true;
+};
+
+const closeDropdown = () => {
+  opened.value = false;
+};
+
+onMounted(() => {
+  document.addEventListener('click', (event) => {
+    if (!searchDropdown.value?.contains(event.target as Node) && opened.value) {
+      closeDropdown();
+    }
+  });
+  window.addEventListener('keydown', (event) => {
+    if (event.key === "Escape") {
+      closeDropdown();
+    }
+  });
+});
+
+onBeforeUnmount(() => {
+  document.removeEventListener('click', closeDropdown);
+  window.removeEventListener('keydown', closeDropdown);
+});
+
+// Remaining part of your script...
+</script>
+```
+
+### Key Changes:
+
+1. **Focus Handling**: Removed the `@blur` event from `app-input` and modified the blur handling in the dropdown `div` to check if the new focus is outside the search component. This prevents the dropdown from closing when interacting with items inside it.
+2. **Click Outside Handling**: Added a global click listener to close the dropdown when clicking outside the component.
+3. **Escape Key Handling**: Added a listener for the Escape key to close the dropdown.
+
+This setup ensures the dropdown remains open when interacting with elements inside it but will close when the user clicks outside the dropdown area or presses the Escape key.
+
+
+
+-------
 The error message you're seeing in the backend suggests there's an issue with the handling of the product state, specifically related to determining if a product is frozen. The `NullPointerException` indicates that the method attempting to fetch the frozen state is receiving a `null` value, which it doesn't handle properly.
 
 Here's a breakdown of the issue and steps to resolve it:
