@@ -1,3 +1,114 @@
+Based on your current setup, it appears there might be a conflict or an incorrect logic placement that's preventing the dropdown from opening properly. Let's refactor the event listeners and the interaction logic to ensure that the dropdown opens and closes as expected.
+
+### Issue Analysis and Correction:
+
+1. **Redundant Event Listeners**: The `onMounted` and `onBeforeUnmount` lifecycle hooks were added twice, which might cause unexpected behavior.
+
+2. **Click Event Handling**: The current event handling might be too aggressive in closing the dropdown, especially considering that clicks on the dropdown itself should not close it but are possibly interpreted as outside clicks.
+
+Let's refactor the code with a clearer separation of concerns:
+
+```vue
+<script setup lang="ts" generic="T extends MinimalSearchValue">
+import { ref, onMounted, onBeforeUnmount, nextTick } from 'vue';
+import AppInput from '@/components/common/formElements/input/Input.vue';
+import AppIconButton from '@/components/common/icon/IconButton.vue';
+import { useI18n } from 'vue-i18n';
+import {
+  matchedResultsFilter,
+  MinimalSearchValue,
+  parseSearchValue
+} from '@/components/common/search/helpers/match.js';
+
+defineOptions({ name: 'SearchProperties' });
+
+const props = withDefaults(
+  defineProps<{
+    modelValue?: string;
+    altStyle?: boolean;
+    selectedValues?: T[];
+    availableValues?: T[];
+    enabled?: boolean;
+    inputPlaceholder?: string;
+    labelKey?: string;
+  }>(),
+  {
+    modelValue: '',
+    selectedValues: () => [],
+    availableValues: () => [],
+    inputPlaceholder: 'Search list',
+    labelKey: ''
+  }
+);
+
+const emit = defineEmits<{
+  'update:modelValue': [value: string];
+  blur: [value: string];
+  selected: [value: T];
+  clear: [];
+}>();
+
+const { t } = useI18n();
+const searchString = ref(props.modelValue);
+const searchDropdown = ref<HTMLElement | null>(null);
+const opened = ref(false);
+
+const clearSearch = () => {
+  searchString.value = '';
+  emit('clear');
+  opened.value = false; // Close dropdown when search is cleared
+};
+
+const select = (value: T) => {
+  searchString.value = parseSearchValue(value);
+  emit('selected', value);
+  opened.value = false; // Close dropdown when an item is selected
+};
+
+const focusDropdown = () => {
+  opened.value = true;
+};
+
+const checkClickOutside = (event: MouseEvent) => {
+  nextTick(() => {
+    if (
+      searchDropdown.value &&
+      !searchDropdown.value.contains(event.target as Node) &&
+      opened.value
+    ) {
+      closeDropdown();
+    }
+  });
+};
+
+const closeDropdown = () => {
+  opened.value = false;
+};
+
+onMounted(() => {
+  document.addEventListener('click', checkClickOutside);
+  window.addEventListener('keydown', (event: KeyboardEvent) => {
+    if (event.key === 'Escape') {
+      closeDropdown();
+    }
+  });
+});
+
+onBeforeUnmount(() => {
+  document.removeEventListener('click', checkClickOutside);
+  window.removeEventListener('keydown', closeDropdown);
+});
+</script>
+```
+
+### Key Adjustments:
+
+- **Event Handling Refactor**: Simplified and ensured no redundant event listeners.
+- **Immediate Event Handling**: Using `nextTick` to delay the execution of the check for clicks outside the dropdown, ensuring that the dropdown setup completes before the event check interferes.
+- **Dropdown Logic**: Clearly define when the dropdown should remain open and when it should close based on user interactions.
+
+This setup should better handle your requirements of keeping the dropdown open when interacting with it and only closing on outside clicks or ESC key presses.
+-----
 The TypeScript error you're seeing is because the event parameter doesn't have an explicit type declared. TypeScript requires explicit types for a more rigorous type checking process, ensuring you are using the expected properties and methods associated with that type.
 
 To resolve this issue, you should specify the type of the `event` parameter using the `MouseEvent` type for click events. This will inform TypeScript that `event` is a mouse event, giving you access to the appropriate properties and methods. Here's the corrected version:
