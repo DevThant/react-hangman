@@ -1,3 +1,67 @@
+The TypeScript error you're seeing is because the event parameter doesn't have an explicit type declared. TypeScript requires explicit types for a more rigorous type checking process, ensuring you are using the expected properties and methods associated with that type.
+
+To resolve this issue, you should specify the type of the `event` parameter using the `MouseEvent` type for click events. This will inform TypeScript that `event` is a mouse event, giving you access to the appropriate properties and methods. Here's the corrected version:
+
+```javascript
+<script setup lang="ts" generic="T extends MinimalSearchValue">
+import { ref, onMounted, onBeforeUnmount } from 'vue';
+import AppInput from '@/components/common/formElements/input/Input.vue';
+import AppIconButton from '@/components/common/icon/IconButton.vue';
+import { useI18n } from 'vue-i18n';
+import {
+  matchedResultsFilter,
+  MinimalSearchValue,
+  parseSearchValue
+} from '@/components/common/search/helpers/match.js';
+
+defineOptions({ name: 'SearchProperties' });
+
+// Your existing props, emit, and other constants setup here ...
+
+const opened = ref(false);
+const searchDropdown = ref<HTMLElement | null>(null);
+
+const focusDropdown = () => {
+  opened.value = true;
+};
+
+const closeDropdown = () => {
+  opened.value = false;
+};
+
+const checkClickOutside = (event: MouseEvent) => {
+  if (searchDropdown.value && !searchDropdown.value.contains(event.target as Node) && opened.value) {
+    closeDropdown();
+  }
+};
+
+onMounted(() => {
+  document.addEventListener('click', checkClickOutside);
+  window.addEventListener('keydown', (event: KeyboardEvent) => {
+    if (event.key === "Escape") {
+      closeDropdown();
+    }
+  });
+});
+
+onBeforeUnmount(() => {
+  document.removeEventListener('click', checkClickOutside);
+  window.removeEventListener('keydown', closeDropdown);
+});
+
+// Remaining part of your script...
+</script>
+```
+
+### Changes made:
+
+1. **Event Typing**: Added type `MouseEvent` to the `checkClickOutside` function parameter and `KeyboardEvent` to the keydown event listener.
+2. **Consistent Type Checking**: By using explicit typing, TypeScript can now ensure the use of properties and methods is valid for the specified event types.
+
+This should address the TypeScript error and enable proper event handling in your Vue component setup.
+
+
+-----
 You're right about the issues with the `focusEvent` function. It's not being used, and the typo with `.closet` instead of `.closest` would indeed cause an error.
 
 Let's correct these issues by integrating the correct event handling directly into the component lifecycle without the unused `focusEvent` function. Here's a revised approach focusing directly on handling clicks and keydown events properly:
