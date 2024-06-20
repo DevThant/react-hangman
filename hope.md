@@ -1,3 +1,282 @@
+Let's address each of the issues you've pointed out:
+
+1. **`@click.outside` Modifier**:
+   Vue does not natively support a `.outside` modifier. We will need to handle clicks outside using a directive.
+
+2. **Importing from `@vueuse/core`**:
+   Ensure you have the `@vueuse/core` package installed. If not, install it using:
+   ```sh
+   npm install @vueuse/core
+   ```
+
+3. **Implicit `any` Type for Event Parameter**:
+   We will need to provide a type annotation for the event parameter to avoid TypeScript errors.
+
+Here is the corrected code with these issues addressed:
+
+### Step 1: Install `@vueuse/core`
+Make sure you have `@vueuse/core` installed:
+```sh
+npm install @vueuse/core
+```
+
+### Step 2: Add a Custom Directive for Click Outside
+Create a custom directive to handle clicks outside the dropdown:
+
+```typescript
+// directives/clickOutside.ts
+import { DirectiveBinding } from 'vue';
+
+function clickOutside(event: MouseEvent, el: HTMLElement, binding: DirectiveBinding) {
+  if (el && !el.contains(event.target as Node) && binding.value) {
+    binding.value(event);
+  }
+}
+
+export default {
+  beforeMount(el: HTMLElement, binding: DirectiveBinding) {
+    el._clickOutsideHandler = (event: MouseEvent) => clickOutside(event, el, binding);
+    document.addEventListener('click', el._clickOutsideHandler);
+  },
+  unmounted(el: HTMLElement) {
+    document.removeEventListener('click', el._clickOutsideHandler);
+  },
+};
+```
+
+### Step 3: Update `SearchProperties.vue`
+Use the custom directive and fix the `useEventListener` part:
+
+```vue
+<template>
+  <div class="search-property-wrapper" v-click-outside="closeDropdown">
+    <app-input
+      id="search-input"
+      v-model="searchString"
+      raised
+      :alt-style="altStyle"
+      type="text"
+      :placeholder="inputPlaceholder"
+      autocomplete="off"
+      icon-label="search"
+      class="search-input"
+      @click="openDropdown"
+      @keydown.esc="closeDropdown"
+    >
+      <app-icon-button
+        v-if="searchString"
+        name="times"
+        class="clickable"
+        stop-propagation
+        @click="clearSearch"
+      />
+    </app-input>
+    <div
+      v-if="opened"
+      ref="searchDropdown"
+      tabindex="0"
+      class="results"
+      @mousedown="focusDropdown"
+    >
+      <ol class="scrollable">
+        <template
+          v-if="
+            matchedResultsFilter(searchString, filteredAvailableValues).length ||
+            matchedResultsFilter(searchString, selectedValues).length
+          "
+        >
+          <template
+            v-if="matchedResultsFilter(searchString, filteredAvailableValues).length && enabled"
+          >
+            <li class="small">{{ availableLabel }}:</li>
+            <li
+              v-for="value of matchedResultsFilter(searchString, filteredAvailableValues)"
+              :key="parseSearchValue(value)"
+              :title="parseSearchValue(value)"
+              class="selectable"
+              @click="select(value)"
+            >
+              <slot name="availableValue" v-bind="value">{{ parseSearchValue(value) }}</slot>
+            </li>
+          </template>
+          <template v-if="matchedResultsFilter(searchString, selectedValues).length">
+            <li class="small">{{ selectedLabel }}:</li>
+            <li
+              v-for="value of matchedResultsFilter(searchString, selectedValues)"
+              :key="parseSearchValue(value)"
+              class="selectable"
+              :title="parseSearchValue(value)"
+            >
+              <slot name="selectedValue" v-bind="value">{{ parseSearchValue(value) }}</slot>
+            </li>
+          </template>
+        </template>
+        <li v-else-if="!noMatchFound">{{ t('properties.noAvailableValues') }}</li>
+        <li v-if="noMatchFound">{{ t('properties.noMatch') }}</li>
+      </ol>
+    </div>
+  </div>
+</template>
+
+<script setup lang="ts" generic="T extends MinimalSearchValue">
+import { computed, ref, VueElement, watch } from 'vue';
+import AppInput from '@/components/common/formElements/input/Input.vue';
+import AppIconButton from '@/components/common/icon/IconButton.vue';
+import { useI18n } from 'vue-i18n';
+import {
+  matchedResultsFilter,
+  MinimalSearchValue,
+  parseSearchValue
+} from '@/components/common/search/helpers/match.js';
+import { onClickOutside, useEventListener } from '@vueuse/core'; // Ensure @vueuse/core is installed
+
+// Custom directive for click outside
+import ClickOutside from '@/directives/clickOutside';
+
+defineOptions({ name: 'SearchProperties' });
+
+const props = withDefaults(
+  defineProps<{
+    modelValue?: string;
+    altStyle?: boolean;
+    selectedValues?: T[];
+    availableValues?: T[];
+    enabled?: boolean;
+    inputPlaceholder?: string;
+    labelKey?: string;
+  }>(),
+  {
+    modelValue: '',
+    selectedValues: () => [],
+    availableValues: () => [],
+    inputPlaceholder: 'Search list',
+    labelKey: ''
+  }
+);
+
+const emit = defineEmits<{
+  'update:modelValue': [value: string];
+  blur: [value: string];
+  selected: [value: T];
+  clear: [];
+  remove: [value: T];
+}>();
+
+const { t } = useI18n();
+const searchString = ref(props.modelValue);
+const searchDropdown = ref<HTMLElement | InstanceType<typeof VueElement>>();
+const opened = ref(false);
+
+const filteredAvailableValues = computed<T[]>(() => {
+  const valueMap = props.selectedValues.map(val => parseSearchValue(val));
+  return props.availableValues.filter(value => !valueMap.includes(parseSearchValue(value)));
+});
+
+const noMatchFound = computed<boolean>(
+  () =>
+    !!searchString.value &&
+    !matchedResultsFilter(searchString.value, props.selectedValues).length &&
+    (!props.enabled || !matchedResultsFilter(searchString.value, props.availableValues).length)
+);
+
+const parsedLabelKey = computed<string>(() => (props.labelKey ? ` ${t(props.labelKey)}` : ''));
+const availableLabel = computed<string>(() => t('properties.available') + parsedLabelKey.value);
+const selectedLabel = computed<string>(() => t('properties.selected') + parsedLabelKey.value);
+
+const clearSearch = () => {
+  searchString.value = '';
+  emit('clear');
+};
+
+const select = (value: T) => {
+  searchString.value = parseSearchValue(value);
+  emit('selected', value);
+};
+
+const focusDropdown = () => {
+  if (searchDropdown?.value?.focus) {
+    searchDropdown.value.focus();
+  } else if ((searchDropdown?.value as any)?.$el?.focus) {
+    (searchDropdown.value as any).$el.focus();
+  }
+  opened.value = true;
+};
+
+const openDropdown = () => {
+  opened.value = true;
+};
+
+const closeDropdown = () => {
+  opened.value = false;
+  emit('blur', searchString.value);
+};
+
+onClickOutside(searchDropdown, closeDropdown); // Close dropdown on outside click
+
+useEventListener('keydown', (event: KeyboardEvent) => {
+  if (event.key === 'Escape') {
+    closeDropdown();
+  }
+});
+
+watch(searchString, value => emit('update:modelValue', value));
+
+</script>
+
+<style scoped>
+.search-property-wrapper {
+  position: relative;
+}
+.results {
+  width: 100%;
+  position: absolute;
+  z-index: 9;
+  box-shadow: var(--search-results-shadow);
+  border: 1px solid var(--search-results-border-color);
+}
+li {
+  background: var(--dropdown-color);
+  height: 2.5em;
+  padding: 0 var(--base-spacing-2);
+  display: flex;
+  flex-direction: row;
+  align-content: center;
+  align-items: center;
+  user-select: none;
+  white-space: nowrap;
+}
+.scrollable {
+  overflow: hidden;
+  overflow-y: auto;
+  max-height: 30vh;
+}
+.selectable {
+  cursor: pointer;
+}
+.selectable:hover {
+  background: var(--dropdown-hover-color);
+}
+.search-input {
+  height: 40px;
+}
+.search-input:deep(.field) {
+  height: 100%;
+}
+</style>
+```
+
+### Explanation:
+1. **Custom Directive (`clickOutside.ts`)**:
+   - This directive will handle detecting clicks outside the element and invoking the provided handler.
+
+2. **Using the Custom Directive**:
+   - Apply the `v-click-outside` directive in your component to handle closing the dropdown on outside clicks.
+
+3. **Handling Escape Key**:
+   - Use the `useEventListener` with an explicit type for the event parameter to avoid TypeScript errors.
+
+These steps should resolve the issues you encountered.
+-------
 To implement the required functionalities in the `SearchProperties.vue` component, you need to handle both the click outside and the escape key to close the dropdown, while ensuring the dropdown remains open for interactions within it.
 
 Here’s the updated code with the necessary changes:
