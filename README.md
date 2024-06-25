@@ -1,3 +1,210 @@
+<template>
+  <div ref="wrapper" class="search-property-wrapper" @click="openDropdown">
+    <app-input
+      id="search-input"
+      v-model="searchString"
+      raised
+      :alt-style="altStyle"
+      type="text"
+      :placeholder="inputPlaceholder"
+      autocomplete="off"
+      icon-label="search"
+      class="search-input"
+      @click.stop="openDropdown"
+    >
+      <app-icon-button
+        v-if="searchString"
+        name="times"
+        class="clickable"
+        stop-propagation
+        @click="clearSearch"
+      />
+    </app-input>
+    <div v-if="opened" ref="searchDropdown" tabindex="0" class="results" @mousedown="focusDropdown">
+      <ol class="scrollable">
+        <template
+          v-if="
+            matchedResultsFilter(searchString, filteredAvailableValues).length ||
+            matchedResultsFilter(searchString, selectedValues).length
+          "
+        >
+          <template
+            v-if="matchedResultsFilter(searchString, filteredAvailableValues).length && enabled"
+          >
+            <li class="small">{{ availableLabel }}:</li>
+            <li
+              v-for="value of matchedResultsFilter(searchString, filteredAvailableValues)"
+              :key="parseSearchValue(value)"
+              :title="parseSearchValue(value)"
+              class="selectable"
+              @click="select(value)"
+            >
+              <slot name="availableValue" v-bind="value">{{ parseSearchValue(value) }}</slot>
+            </li>
+          </template>
+          <template v-if="matchedResultsFilter(searchString, selectedValues).length">
+            <li class="small">{{ selectedLabel }}:</li>
+            <li
+              v-for="value of matchedResultsFilter(searchString, selectedValues)"
+              :key="parseSearchValue(value)"
+              class="selectable"
+              :title="parseSearchValue(value)"
+            >
+              <slot name="selectedValue" v-bind="value">{{ parseSearchValue(value) }}</slot>
+            </li>
+          </template>
+        </template>
+        <li v-else-if="!noMatchFound">{{ t('properties.noAvailableValues') }}</li>
+        <li v-if="noMatchFound">{{ t('properties.noMatch') }}</li>
+      </ol>
+    </div>
+  </div>
+</template>
+<script setup lang="ts" generic="T extends MinimalSearchValue">
+import { computed, ref, onMounted, onBeforeUnmount, watch } from 'vue';
+import AppInput from '@/components/common/formElements/input/Input.vue';
+import AppIconButton from '@/components/common/icon/IconButton.vue';
+import { useI18n } from 'vue-i18n';
+import { eventService, EventType } from '@/services/event.js';
+import {
+  matchedResultsFilter,
+  MinimalSearchValue,
+  parseSearchValue
+} from '@/components/common/search/helpers/match.js';
+defineOptions({ name: 'SearchProperties' });
+
+const props = withDefaults(
+  defineProps<{
+    modelValue?: string;
+    altStyle?: boolean;
+    selectedValues?: T[];
+    availableValues?: T[];
+    enabled?: boolean;
+    inputPlaceholder?: string;
+    labelKey?: string;
+  }>(),
+  {
+    modelValue: '',
+    selectedValues: () => [],
+    availableValues: () => [],
+    inputPlaceholder: 'Search list',
+    labelKey: ''
+  }
+);
+
+const emit = defineEmits<{
+  'update:modelValue': [value: string];
+  blur: [value: string];
+  selected: [value: T];
+  clear: [];
+  remove: [value: T];
+}>();
+
+const { t } = useI18n();
+const searchString = ref(props.modelValue);
+const searchDropdown = ref<HTMLElement | null>(null);
+const wrapper = ref<HTMLElement | null>(null);
+const opened = ref(false);
+const filteredAvailableValues = computed<T[]>(() => {
+  const valueMap = props.selectedValues.map(val => parseSearchValue(val));
+  return props.availableValues.filter(value => !valueMap.includes(parseSearchValue(value)));
+});
+const noMatchFound = computed<boolean>(
+  () =>
+    !!searchString.value &&
+    !matchedResultsFilter(searchString.value, props.selectedValues).length &&
+    (!props.enabled || !matchedResultsFilter(searchString.value, props.availableValues).length)
+);
+const parsedLabelKey = computed<string>(() => (props.labelKey ? ` ${t(props.labelKey)}` : ''));
+const availableLabel = computed<string>(() => t('properties.available') + parsedLabelKey.value);
+const selectedLabel = computed<string>(() => t('properties.selected') + parsedLabelKey.value);
+const clearSearch = () => {
+  searchString.value = '';
+  emit('clear');
+};
+const select = (value: T) => {
+  searchString.value = parseSearchValue(value);
+  emit('selected', value);
+};
+const focusDropdown = () => {
+  if (searchDropdown?.value?.focus) {
+    searchDropdown.value.focus();
+  } else if ((searchDropdown?.value as any)?.$el?.focus) {
+    (searchDropdown.value as any).$el.focus();
+  }
+  opened.value = true;
+};
+const openDropdown = () => {
+  opened.value = true;
+};
+const closeDropdown = () => {
+  opened.value = false;
+  emit('blur', searchString.value);
+};
+
+const handleClickOutside = (event: MouseEvent) => {
+  if (wrapper.value && !wrapper.value.contains(event.target as Node)) {
+    closeDropdown();
+  }
+};
+const handleEscapeKey = (event: KeyboardEvent) => {
+  if (event.key === 'Escape') {
+    closeDropdown();
+  }
+};
+
+// Use eventService for handling events
+onMounted(() => {
+  eventService.on(EventType.Click, handleClickOutside);
+  eventService.on(EventType.Shortcut, handleEscapeKey);
+});
+onBeforeUnmount(() => {
+  eventService.off(EventType.Click, handleClickOutside);
+  eventService.off(EventType.Shortcut, handleEscapeKey);
+});
+watch(searchString, value => emit('update:modelValue', value));
+</script>
+<style scoped>
+.search-property-wrapper {
+  position: relative;
+}
+.results {
+  width: 100%;
+  position: absolute;
+  z-index: 9;
+  box-shadow: var(--search-results-shadow);
+  border: 1px solid var(--search-results-border-color);
+}
+li {
+  background: var(--dropdown-color);
+  height: 2.5em;
+  padding: 0 var(--base-spacing-2);
+  display: flex;
+  flex-direction: row;
+  align-content: center;
+  align-items: center;
+  user-select: none;
+  white-space: nowrap;
+}
+.scrollable {
+  overflow: hidden;
+  overflow-y: auto;
+  max-height: 30vh;
+}
+.selectable {
+  cursor: pointer;
+}
+.selectable:hover {
+  background: var(--dropdown-hover-color);
+}
+.search-input {
+  height: 40px;
+}
+.search-input:deep(.field) {
+  height: 100%;
+}
+</style>
+-----
 I apologize for that oversight. Let's properly update the implementation to ensure that the track items are removed correctly from the track and update the state accordingly. Here's the corrected approach:
 
 1. **Ensure Proper Injection of GoJS Diagram Instance**: Make sure the GoJS diagram instance is properly injected and accessible.
