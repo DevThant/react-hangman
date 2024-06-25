@@ -1,3 +1,47 @@
+It looks like the commands aren't being executed correctly. Let's try using `cmd.exe` instead of `pwsh` to ensure that the commands are executed properly in each pane. Here’s how you can modify the script:
+
+### Modified PowerShell Script
+
+1. **Create a PowerShell Script**:
+   - Open a text editor and create a new file named `start-dev.ps1`.
+   - Add the following content to the file:
+
+    ```powershell
+    # Define the paths
+    $projectProductManagementServer = 'C:\Users\username123\Documents\workspace\project\project-product-management\server'
+    $projectGateway = 'C:\Users\username123\Documents\workspace\project\project-gateway'
+    $azurite = 'C:\Users\username123\Documents\workspace\project\project-product-management\azurite'
+    $projectA = 'C:\Users\username123\Documents\workspace\project\project-a'
+    $projectB = 'C:\Users\username123\Documents\workspace\project\project-b'
+    $projectFrontend = 'C:\Users\username123\Documents\workspace\project\project-frontend'
+
+    # Open Windows Terminal with multiple panes
+    wt.exe -d $projectProductManagementServer cmd /k "yarn dev" `
+           `; split-pane -H -d $projectGateway cmd /k "yarn serve:dev" `
+           `; split-pane -H -d $azurite cmd /k "yarn emulate" `
+           `; split-pane -V -d $projectA cmd /k "mvn spring-boot:run" `
+           `; split-pane -V -d $projectB cmd /k "mvn spring-boot:run" `
+           `; split-pane -H -d $projectFrontend cmd /k "yarn serve:dev --force"
+    ```
+
+2. **Save the Script**:
+   - Save the `start-dev.ps1` file in a convenient location.
+
+3. **Run the Script**:
+   - Open PowerShell as an Administrator.
+   - Navigate to the directory where you saved `start-dev.ps1`.
+   - Execute the script by running:
+     ```powershell
+     .\start-dev.ps1
+     ```
+
+### Explanation
+
+- **`cmd /k`**: This command runs `cmd.exe` with the specified command and keeps the window open.
+
+This should ensure that each command is executed in its respective pane. If you encounter any more issues, let me know!
+
+------
 Sure, you can use the `wt.exe` command to open Windows Terminal with multiple tabs and panes. Here’s how you can do it based on the instructions you provided. This script will open a new Windows Terminal window with the specified commands running in separate panes:
 
 1. **Create a PowerShell Script**:
