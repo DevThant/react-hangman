@@ -1,3 +1,52 @@
+It seems like there is an issue with the commands being interpreted correctly in the split panes. Let's try another approach by explicitly specifying the shell executable and its parameters more clearly.
+
+Here’s the updated PowerShell script:
+
+### Updated PowerShell Script
+
+1. **Create a PowerShell Script**:
+   - Open a text editor and create a new file named `start-dev.ps1`.
+   - Add the following content to the file:
+
+    ```powershell
+    # Define the paths
+    $projectProductManagementServer = 'C:\Users\username123\Documents\workspace\project\project-product-management\server'
+    $projectGateway = 'C:\Users\username123\Documents\workspace\project\project-gateway'
+    $azurite = 'C:\Users\username123\Documents\workspace\project\project-product-management\azurite'
+    $projectA = 'C:\Users\username123\Documents\workspace\project\project-a'
+    $projectB = 'C:\Users\username123\Documents\workspace\project\project-b'
+    $projectFrontend = 'C:\Users\username123\Documents\workspace\project\project-frontend'
+
+    # Open Windows Terminal with multiple panes
+    wt.exe new-tab -d $projectProductManagementServer --title "Server" cmd /k "yarn dev" `
+           `; split-pane -H -d $projectGateway --title "Gateway" cmd /k "yarn serve:dev" `
+           `; split-pane -H -d $azurite --title "Azurite" cmd /k "yarn emulate" `
+           `; split-pane -V -d $projectA --title "Project A" cmd /k "mvn spring-boot:run" `
+           `; split-pane -V -d $projectB --title "Project B" cmd /k "mvn spring-boot:run" `
+           `; split-pane -H -d $projectFrontend --title "Frontend" cmd /k "yarn serve:dev --force"
+    ```
+
+2. **Save the Script**:
+   - Save the `start-dev.ps1` file in a convenient location.
+
+3. **Run the Script**:
+   - Open PowerShell as an Administrator.
+   - Navigate to the directory where you saved `start-dev.ps1`.
+   - Execute the script by running:
+     ```powershell
+     .\start-dev.ps1
+     ```
+
+### Explanation
+
+- **`new-tab`**: Ensures a new tab is opened in Windows Terminal.
+- **`--title`**: Sets the title for each pane for better identification.
+- **`cmd /k`**: Runs `cmd.exe` with the specified command and keeps the window open.
+- **Split panes**: Organized in a way that should correctly align the commands with the intended panes.
+
+This should help ensure each command runs in its respective pane without interfering with others. If you encounter any further issues or need additional adjustments, let me know!
+
+-----
 It looks like the commands aren't being executed correctly. Let's try using `cmd.exe` instead of `pwsh` to ensure that the commands are executed properly in each pane. Here’s how you can modify the script:
 
 ### Modified PowerShell Script
