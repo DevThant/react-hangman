@@ -1,3 +1,53 @@
+Let's revise the approach to ensure proper command execution in Windows Terminal. We will use the correct syntax for launching commands and ensure they are handled properly.
+
+Here is the revised script:
+
+### PowerShell Script for Windows Terminal with Split Panes
+
+1. **Create a PowerShell Script**:
+   - Create a file named `start-dev-terminal.ps1` with the following content:
+
+    ```powershell
+    $commands = @(
+        "cd C:\Users\username123\Documents\workspace\project\project-product-management\server; yarn dev",
+        "cd C:\Users\username123\Documents\workspace\project\project-gateway; yarn serve:dev",
+        "cd C:\Users\username123\Documents\workspace\project\project-product-management\azurite; yarn emulate",
+        "cd C:\Users\username123\Documents\workspace\project\project-a; mvn spring-boot:run",
+        "cd C:\Users\username123\Documents\workspace\project\project-b; mvn spring-boot:run",
+        "cd C:\Users\username123\Documents\workspace\project\project-frontend; yarn serve:dev --force"
+    )
+
+    # Open Windows Terminal with the first command
+    wt new-tab --title "Server" -- powershell -NoExit -Command $commands[0]
+
+    # Split panes for the remaining commands
+    wt new-tab --title "Dev Environment" `
+        ; split-pane -V --title "Gateway" -- powershell -NoExit -Command $commands[1] `
+        ; split-pane -H --title "Azurite" -- powershell -NoExit -Command $commands[2] `
+        ; split-pane -V --title "Project A" -- powershell -NoExit -Command $commands[3] `
+        ; split-pane -H --title "Project B" -- powershell -NoExit -Command $commands[4] `
+        ; split-pane -V --title "Frontend" -- powershell -NoExit -Command $commands[5]
+    ```
+
+2. **Run the Script**:
+   - Save the `start-dev-terminal.ps1` file in a convenient location.
+   - Open a non-admin PowerShell window and navigate to the directory where you saved `start-dev-terminal.ps1`.
+   - Execute the script by running:
+     ```powershell
+     .\start-dev-terminal.ps1
+     ```
+
+### Explanation
+
+- **wt new-tab**: Opens a new tab in Windows Terminal.
+- **split-pane**: Splits the current pane into multiple panes.
+- **--title**: Sets the title for each tab/pane for better identification.
+- **-- powershell -NoExit -Command**: Ensures that the command runs in the specified pane without closing it after execution.
+
+This approach should handle the commands correctly, opening them in a split-pane configuration within a single Windows Terminal instance, without requiring admin privileges. If you still encounter issues, we can try additional troubleshooting steps.
+
+
+------
 It seems there was a misunderstanding in the execution and syntax. Let's correct that by ensuring we properly format the commands for Windows Terminal and address the error you're encountering.
 
 Here’s a revised approach:
