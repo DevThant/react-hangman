@@ -1,3 +1,49 @@
+Sure, you can use the `wt.exe` command to open Windows Terminal with multiple tabs and panes. Here’s how you can do it based on the instructions you provided. This script will open a new Windows Terminal window with the specified commands running in separate panes:
+
+1. **Create a PowerShell Script**:
+   - Open a text editor and create a new file named `start-dev.ps1`.
+   - Add the following content to the file:
+
+    ```powershell
+    # Define the paths
+    $projectProductManagementServer = 'C:\Users\username123\Documents\workspace\project\project-product-management\server'
+    $projectGateway = 'C:\Users\username123\Documents\workspace\project\project-gateway'
+    $azurite = 'C:\Users\username123\Documents\workspace\project\project-product-management\azurite'
+    $projectA = 'C:\Users\username123\Documents\workspace\project\project-a'
+    $projectB = 'C:\Users\username123\Documents\workspace\project\project-b'
+    $projectFrontend = 'C:\Users\username123\Documents\workspace\project\project-frontend'
+
+    # Open Windows Terminal with multiple panes
+    wt.exe -d $projectProductManagementServer pwsh -Command "yarn dev" `
+           `; split-pane -H -d $projectGateway pwsh -Command "yarn serve:dev" `
+           `; split-pane -H -d $azurite pwsh -Command "yarn emulate" `
+           `; split-pane -V -d $projectA pwsh -Command "mvn spring-boot:run" `
+           `; split-pane -V -d $projectB pwsh -Command "mvn spring-boot:run" `
+           `; split-pane -H -d $projectFrontend pwsh -Command "yarn serve:dev --force"
+    ```
+
+2. **Save the Script**:
+   - Save the `start-dev.ps1` file in a convenient location.
+
+3. **Run the Script**:
+   - Open PowerShell as an Administrator.
+   - Navigate to the directory where you saved `start-dev.ps1`.
+   - Execute the script by running:
+     ```powershell
+     .\start-dev.ps1
+     ```
+
+### Explanation
+
+- **`wt.exe -d`**: This command opens a new Windows Terminal window and sets the specified directory as the starting directory.
+- **`split-pane -H`**: This command splits the current pane horizontally.
+- **`split-pane -V`**: This command splits the current pane vertically.
+- **`pwsh -Command`**: This command runs a PowerShell command.
+
+This script will open a new Windows Terminal window with the specified commands running in separate panes, reducing the need to manually open multiple terminals and run each command.
+
+Feel free to adjust the pane splitting (`-H` for horizontal and `-V` for vertical) to match your preferred layout. If you need further customization or run into any issues, let me know!
+----
 I apologize for the confusion. It seems there was a mistake in the syntax for splitting panes using `wt`. Let's correct that.
 
 Here’s a revised script with the correct `wt` syntax for creating split panes:
