@@ -1,3 +1,49 @@
+To ensure that the panes are split equally, you can use the `--size` parameter to specify the split ratio. This parameter allows you to define how much space each pane should take. Here’s how you can modify the script to achieve equal splits:
+
+### Updated PowerShell Script with Equal Splits
+
+1. **Create a PowerShell Script**:
+   - Open a text editor and create a new file named `start-dev.ps1`.
+   - Add the following content to the file:
+
+    ```powershell
+    # Define the paths
+    $projectProductManagementServer = 'C:\Users\username123\Documents\workspace\project\project-product-management\server'
+    $projectGateway = 'C:\Users\username123\Documents\workspace\project\project-gateway'
+    $azurite = 'C:\Users\username123\Documents\workspace\project\project-product-management\azurite'
+    $projectA = 'C:\Users\username123\Documents\workspace\project\project-a'
+    $projectB = 'C:\Users\username123\Documents\workspace\project\project-b'
+    $projectFrontend = 'C:\Users\username123\Documents\workspace\project\project-frontend'
+
+    # Open Windows Terminal with multiple equally split panes
+    wt.exe new-tab -d $projectProductManagementServer --title "Server" cmd /k "yarn dev" `
+           `; split-pane -H --size 0.5 -d $projectGateway --title "Gateway" cmd /k "yarn serve:dev" `
+           `; split-pane -V --size 0.5 -d $azurite --title "Azurite" cmd /k "yarn emulate" `
+           `; split-pane -H --size 0.5 -d $projectA --title "Project A" cmd /k "mvn spring-boot:run" `
+           `; split-pane -H --size 0.5 -d $projectB --title "Project B" cmd /k "mvn spring-boot:run" `
+           `; split-pane -H --size 0.5 -d $projectFrontend --title "Frontend" cmd /k "yarn serve:dev --force"
+    ```
+
+2. **Save the Script**:
+   - Save the `start-dev.ps1` file in a convenient location.
+
+3. **Run the Script**:
+   - Open PowerShell as an Administrator.
+   - Navigate to the directory where you saved `start-dev.ps1`.
+   - Execute the script by running:
+     ```powershell
+     .\start-dev.ps1
+     ```
+
+### Explanation
+
+- **`--size`**: Specifies the size of the split. A value of `0.5` means each pane will take up 50% of the available space in that direction.
+
+This script will ensure that the panes are split equally. If you need further customization or run into any issues, let me know!
+
+
+
+------
 It seems like there is an issue with the commands being interpreted correctly in the split panes. Let's try another approach by explicitly specifying the shell executable and its parameters more clearly.
 
 Here’s the updated PowerShell script:
