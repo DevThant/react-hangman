@@ -1,3 +1,49 @@
+It seems there was a misunderstanding in the execution and syntax. Let's correct that by ensuring we properly format the commands for Windows Terminal and address the error you're encountering.
+
+Here’s a revised approach:
+
+1. **PowerShell Script to Launch Windows Terminal with Split Panes**:
+   - Create a PowerShell script (`start-dev-terminal.ps1`) with the following content:
+
+    ```powershell
+    $commands = @(
+        "cd C:\Users\username123\Documents\workspace\project\project-product-management\server; yarn dev",
+        "cd C:\Users\username123\Documents\workspace\project\project-gateway; yarn serve:dev",
+        "cd C:\Users\username123\Documents\workspace\project\project-product-management\azurite; yarn emulate",
+        "cd C:\Users\username123\Documents\workspace\project\project-a; mvn spring-boot:run",
+        "cd C:\Users\username123\Documents\workspace\project\project-b; mvn spring-boot:run",
+        "cd C:\Users\username123\Documents\workspace\project\project-frontend; yarn serve:dev --force"
+    )
+
+    # Open the first command in a new Windows Terminal window
+    wt -p "Windows PowerShell" -- powershell -NoExit -Command $commands[0]
+
+    # Open remaining commands in split panes
+    for ($i = 1; $i -lt $commands.Count; $i++) {
+        if ($i % 2 -eq 1) {
+            wt split-pane -H -- powershell -NoExit -Command $commands[$i]
+        } else {
+            wt split-pane -V -- powershell -NoExit -Command $commands[$i]
+        }
+    }
+    ```
+
+2. **Run the Script**:
+   - Save the `start-dev-terminal.ps1` file in a convenient location.
+   - Open a non-admin PowerShell window and navigate to the directory where you saved `start-dev-terminal.ps1`.
+   - Execute the script by running:
+     ```powershell
+     .\start-dev-terminal.ps1
+     ```
+
+### Explanation of Changes
+
+- **Correct Command Execution**: The error was due to incorrect command formatting. This script uses `-NoExit -Command` correctly for each PowerShell command.
+- **Split Pane Logic**: This script alternates between horizontal (`-H`) and vertical (`-V`) splits for the panes to avoid opening new windows unnecessarily.
+- **Initial Command**: The first command starts in a new terminal window, and subsequent commands are split within that window.
+
+This should provide a single Windows Terminal window with split panes, each running the required commands in the correct directories. If you encounter any issues or need further customization, let me know!
+-----
 To achieve a split-screen setup within a single PowerShell window, you can use the `Windows Terminal` application, which supports split panes and custom profiles. Here’s how you can set it up:
 
 ### Step-by-Step Instructions
