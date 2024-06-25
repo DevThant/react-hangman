@@ -1,3 +1,55 @@
+I apologize for the confusion. It seems there was a mistake in the syntax for splitting panes using `wt`. Let's correct that.
+
+Here’s a revised script with the correct `wt` syntax for creating split panes:
+
+### PowerShell Script for Windows Terminal with Split Panes
+
+1. **Create a PowerShell Script**:
+   - Create a file named `start-dev-terminal.ps1` with the following content:
+
+    ```powershell
+    $commands = @(
+        "cd C:\Users\username123\Documents\workspace\project\project-product-management\server; yarn dev",
+        "cd C:\Users\username123\Documents\workspace\project\project-gateway; yarn serve:dev",
+        "cd C:\Users\username123\Documents\workspace\project\project-product-management\azurite; yarn emulate",
+        "cd C:\Users\username123\Documents\workspace\project\project-a; mvn spring-boot:run",
+        "cd C:\Users\username123\Documents\workspace\project\project-b; mvn spring-boot:run",
+        "cd C:\Users\username123\Documents\workspace\project\project-frontend; yarn serve:dev --force"
+    )
+
+    # Open Windows Terminal with the first command
+    Start-Process wt -ArgumentList @(
+        "new-tab",
+        "--title", "Server", "--", "powershell", "-NoExit", "-Command", $commands[0],
+        ";", "split-pane", "-H", "--title", "Gateway", "--", "powershell", "-NoExit", "-Command", $commands[1],
+        ";", "split-pane", "-V", "--title", "Azurite", "--", "powershell", "-NoExit", "-Command", $commands[2],
+        ";", "split-pane", "-H", "--title", "Project A", "--", "powershell", "-NoExit", "-Command", $commands[3],
+        ";", "split-pane", "-V", "--title", "Project B", "--", "powershell", "-NoExit", "-Command", $commands[4],
+        ";", "split-pane", "-H", "--title", "Frontend", "--", "powershell", "-NoExit", "-Command", $commands[5]
+    )
+    ```
+
+2. **Run the Script**:
+   - Save the `start-dev-terminal.ps1` file in a convenient location.
+   - Open a non-admin PowerShell window and navigate to the directory where you saved `start-dev-terminal.ps1`.
+   - Execute the script by running:
+     ```powershell
+     .\start-dev-terminal.ps1
+     ```
+
+### Explanation
+
+- **Start-Process wt -ArgumentList**: Starts a new Windows Terminal instance with the specified arguments.
+- **"new-tab"**: Opens a new tab in Windows Terminal.
+- **"split-pane"**: Splits the current pane into multiple panes.
+- **"--title"**: Sets the title for each tab/pane for better identification.
+- **"--", "powershell", "-NoExit", "-Command"**: Ensures that the command runs in the specified pane without closing it after execution.
+- **";"**: Separates the commands in the argument list.
+
+This script should correctly open Windows Terminal, split the panes as desired, and run the specified commands. If this still doesn't work, please let me know the exact errors or behavior you're observing so we can troubleshoot further.
+
+
+-----
 Let's revise the approach to ensure proper command execution in Windows Terminal. We will use the correct syntax for launching commands and ensure they are handled properly.
 
 Here is the revised script:
