@@ -1,3 +1,105 @@
+You're correct; the event handler should use the `Shortcut.Escape` enum value to simulate the Escape key. Here’s the updated unit test with the correct usage:
+
+### Updated `SearchProperties.spec.ts`
+
+```typescript
+import { mount, VueWrapper } from '@vue/test-utils';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { nextTick } from 'vue';
+import SearchProperties from './SearchProperties.vue';
+import { eventService, EventType } from '@/services/event.js'; // Import eventService and EventType
+import { Shortcut } from '@/typings/shortcut.js'; // Import Shortcut
+
+let wrapper: VueWrapper<any>;
+
+beforeEach(() => {
+  wrapper = mount(SearchProperties, {
+    props: {}
+  });
+});
+
+afterEach(() => {
+  wrapper.unmount();
+});
+
+describe('clearSearch', () => {
+  it('should not display a clear button without search string', () => {
+    expect(wrapper.find('.clickable').exists()).toBeFalsy();
+  });
+
+  it('should display a clear button while searching', async () => {
+    wrapper.find('input').setValue('test string');
+    await nextTick();
+    expect(wrapper.find('.clickable').exists()).toBeTruthy();
+  });
+
+  it('should clear input when clicking searchString', async () => {
+    wrapper.find('input').setValue('test string');
+    await nextTick();
+    wrapper.find('.clickable').trigger('click');
+    await nextTick();
+    expect(wrapper.emitted('clear')).toBeTruthy();
+    expect(wrapper.find('.clickable').exists()).toBeFalsy();
+  });
+});
+
+describe('results', () => {
+  beforeEach(() => {
+    wrapper.setProps({
+      availableValues: [{ displayText: 'value1' }, { displayText: 'value2' }],
+      enabled: true
+    });
+  });
+
+  it('should close results list by default', () => {
+    expect(wrapper.find('.results').exists()).toBeFalsy();
+  });
+
+  it('should open results on focus', async () => {
+    wrapper.find('input').trigger('click');
+    await nextTick();
+    expect(wrapper.find('.results').exists()).toBeTruthy();
+  });
+
+  it('should close dropdown when clicking outside', async () => {
+    wrapper.find('input').trigger('click');
+    await nextTick();
+    eventService.emit(EventType.Click, new MouseEvent('click')); // Simulate click outside using eventService
+    await nextTick();
+    expect(wrapper.find('.results').exists()).toBeFalsy();
+  });
+
+  it('should close dropdown when pressing Escape key', async () => {
+    wrapper.find('input').trigger('click');
+    await nextTick();
+    eventService.emit(EventType.Shortcut, Shortcut.Escape); // Simulate Escape key using eventService
+    await nextTick();
+    expect(wrapper.find('.results').exists()).toBeFalsy();
+  });
+
+  it('should display results', async () => {
+    wrapper.find('input').trigger('click');
+    await nextTick();
+    expect(wrapper.findAll('.results li.selectable').length).toBe 2);
+  });
+
+  it('should emit selections', async () => {
+    wrapper.find('input').trigger('click');
+    await nextTick();
+    wrapper.findAll('.selectable').at(0)?.trigger('click');
+    await nextTick();
+    expect(wrapper.emitted('selected')).toBeTruthy();
+  });
+});
+```
+
+### Changes Made:
+1. **Import `Shortcut`**: Import the `Shortcut` enum.
+2. **Use `Shortcut.Escape`**: Use `Shortcut.Escape` in the test to simulate the Escape key event correctly.
+
+This should resolve the TypeScript error and ensure the tests properly simulate the Escape key event.
+
+-----
 To accommodate the changes in the `SearchProperties.vue` component, the unit tests in `SearchProperties.spec.ts` need to be adjusted. Specifically, we'll simulate the events emitted by `eventService` rather than directly dispatching events.
 
 Here is the updated unit test file:
