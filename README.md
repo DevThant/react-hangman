@@ -1,3 +1,60 @@
+To achieve a split-screen setup within a single PowerShell window, you can use the `Windows Terminal` application, which supports split panes and custom profiles. Here’s how you can set it up:
+
+### Step-by-Step Instructions
+
+1. **Install Windows Terminal**:
+   - Download and install [Windows Terminal](https://aka.ms/terminal).
+
+2. **Configure Windows Terminal**:
+   - Open Windows Terminal.
+   - Open the settings file by clicking the dropdown arrow in the terminal’s title bar and selecting “Settings.”
+   - Edit the settings file (usually a JSON file) to add custom profiles and startup commands.
+
+3. **Create a Script for Splitting Panes**:
+   - Create a PowerShell script (`start-dev-terminal.ps1`) with the following content:
+
+    ```powershell
+    $commands = @(
+        "cd C:\Users\username123\Documents\workspace\project\project-product-management\server; yarn dev",
+        "cd C:\Users\username123\Documents\workspace\project\project-gateway; yarn serve:dev",
+        "cd C:\Users\username123\Documents\workspace\project\project-product-management\azurite; yarn emulate",
+        "cd C:\Users\username123\Documents\workspace\project\project-a; mvn spring-boot:run",
+        "cd C:\Users\username123\Documents\workspace\project\project-b; mvn spring-boot:run",
+        "cd C:\Users\username123\Documents\workspace\project\project-frontend; yarn serve:dev --force"
+    )
+
+    foreach ($i in 0..($commands.Count - 1)) {
+        if ($i -eq 0) {
+            wt -p "Windows PowerShell" split-pane -V -- powershell -NoExit -Command $commands[$i]
+        } else {
+            wt split-pane -H -- powershell -NoExit -Command $commands[$i]
+        }
+    }
+    ```
+
+4. **Run the Script**:
+   - Save the `start-dev-terminal.ps1` file in a convenient location.
+   - Open PowerShell (non-admin) and navigate to the directory where you saved `start-dev-terminal.ps1`.
+   - Execute the script by running:
+     ```powershell
+     .\start-dev-terminal.ps1
+     ```
+
+### Explanation
+
+- **wt**: This command is used to open a new Windows Terminal instance or to control an existing one.
+- **-p "Windows PowerShell"**: This specifies the profile to use (e.g., Windows PowerShell).
+- **split-pane -V**: This splits the terminal vertically.
+- **split-pane -H**: This splits the terminal horizontally.
+- **powershell -NoExit -Command**: This runs the specified PowerShell command and keeps the window open.
+
+### Customizing Pane Layout
+
+You can customize the layout further by adjusting the split directions (`-V` for vertical, `-H` for horizontal) and their order in the script.
+
+By using Windows Terminal and the above script, you can create a customized split-screen setup within a single terminal window without requiring admin privileges. If you need more specific customization or encounter issues, let me know!
+
+-----
 To simplify the process of running multiple commands in separate terminals, you can create a script that runs all these commands for you. Here’s how you can do it on Windows using PowerShell. You will need to create a PowerShell script (`start-dev.ps1`) that opens new terminals and runs the required commands.
 
 ### Step-by-Step Instructions
