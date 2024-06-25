@@ -1,3 +1,55 @@
+To simplify the process of running multiple commands in separate terminals, you can create a script that runs all these commands for you. Here’s how you can do it on Windows using PowerShell. You will need to create a PowerShell script (`start-dev.ps1`) that opens new terminals and runs the required commands.
+
+### Step-by-Step Instructions
+
+1. **Create a PowerShell Script**:
+   - Open a text editor and create a new file named `start-dev.ps1`.
+   - Add the following content to the file:
+
+    ```powershell
+    # Start project-product-management server
+    Start-Process "powershell.exe" -ArgumentList "cd C:\Users\username123\Documents\workspace\project\project-product-management\server; yarn dev"
+
+    # Start project-gateway
+    Start-Process "powershell.exe" -ArgumentList "cd C:\Users\username123\Documents\workspace\project\project-gateway; yarn serve:dev"
+
+    # Start azurite emulator
+    Start-Process "powershell.exe" -ArgumentList "cd C:\Users\username123\Documents\workspace\project\project-product-management\azurite; yarn emulate"
+
+    # Start project-a
+    Start-Process "powershell.exe" -ArgumentList "cd C:\Users\username123\Documents\workspace\project\project-a; mvn spring-boot:run"
+
+    # Start project-b
+    Start-Process "powershell.exe" -ArgumentList "cd C:\Users\username123\Documents\workspace\project\project-b; mvn spring-boot:run"
+
+    # Start project-frontend
+    Start-Process "powershell.exe" -ArgumentList "cd C:\Users\username123\Documents\workspace\project\project-frontend; yarn serve:dev --force"
+    ```
+
+2. **Save the Script**:
+   - Save the `start-dev.ps1` file in a convenient location.
+
+3. **Run the Script**:
+   - Open PowerShell as an Administrator.
+   - Navigate to the directory where you saved `start-dev.ps1`.
+   - Execute the script by running:
+     ```powershell
+     .\start-dev.ps1
+     ```
+
+### Explanation
+
+- **Start-Process**: This cmdlet starts one or more processes on the local computer. Each `Start-Process` command opens a new PowerShell window and runs the specified commands.
+- **-ArgumentList**: This parameter specifies the arguments to pass to the process. In this case, it changes the directory and runs the appropriate commands.
+
+This script will open new PowerShell windows and run each command in its respective directory, automating your setup process.
+
+If you need further customization or run into any issues, feel free to ask!
+
+
+
+-------
+
 The issue with the `it('should close dropdown when clicking outside')` test might be related to the timing or the event propagation. Let's add a bit more debugging to see if we can capture what is happening. Specifically, we'll check if the `closeDropdown` method is being called when the `EventType.Click` event is emitted.
 
 ### Updated `SearchProperties.spec.ts`
