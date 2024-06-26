@@ -1,402 +1,97 @@
-To resolve the scroll conflict issue effectively, you should focus on managing the event listeners and ensuring the scroll events are handled correctly at the component level. Specifically, you need to stop the scroll events from propagating up the DOM tree when they occur within the `SidePanel` or the dropdown components.
+Given the additional context and the provided code for the `eventService` and `useFocusable`, the issue likely stems from how the picker tool interacts with the scroll events. Here's a structured approach to diagnose and resolve the issue:
 
-Here's a more detailed approach to tackle the scroll issue:
+### Analysis and Potential Issues
+1. **Event Handling Interference**: The picker tool might be intercepting scroll events, preventing them from propagating correctly.
+2. **Focus Management**: The `useFocusable` composable could be affecting how focus and blur events are managed, potentially interfering with scrolling behavior.
+3. **Event Propagation**: The `eventService` might be emitting events that change the behavior of components when the picker tool is active.
 
-### Step 1: Stop Scroll Propagation in Critical Components
+### Step-by-Step Diagnosis and Fixes
 
-Ensure that the scroll events in the `SidePanel` and dropdown components are not propagated to the parent components. This involves adding event listeners to stop the scroll events from bubbling up.
+#### Step 1: Ensure Event Propagation
+Ensure that the scroll events are correctly propagated when the picker tool is enabled. Check if any event listener or handler might be preventing this.
 
-### Step 2: Utilize Event Listeners to Manage Scroll Behavior
+#### Example: Modify Picker Tool Event Handling
+Add logging to ensure that scroll events are not being intercepted by the picker tool:
 
-You can use `event.stopPropagation()` and `event.preventDefault()` judiciously to manage the scroll behavior.
-
-### Example Implementation:
-
-#### SidePanel.vue
-
-Modify the `SidePanel.vue` component to stop the scroll propagation.
-
-```vue
-<template>
-  <aside class="side-panel" data-testid="sidePanel" :data-expanded="shouldShowPanel" @scroll.stop="stopScrollPropagation">
-    <section v-show="shouldShowPanel" data-testid="sidePanel-tray" class="panel-tray">
-      <keep-alive v-for="(component, key) of panels" :key="key">
-        <component :is="component" v-if="key === editorStore.sidePanel" />
-      </keep-alive>
-    </section>
-    <section v-show="shouldShowSeparator" class="separator"></section>
-    <section v-show="shouldShowSecondaryPanel" data-testid="sidePanel-tray" class="panel-tray">
-      <keep-alive v-for="(component, key) of panels" :key="key">
-        <component :is="component" v-if="key === editorStore.secondarySidePanel" />
-      </keep-alive>
-    </section>
-  </aside>
-</template>
-
-<script setup lang="ts">
-import { computed, onMounted, onBeforeUnmount, type Component } from 'vue';
-import { Shortcut } from '@/typings/shortcut.js';
-import { EditorType } from '@/typings/store.js';
-import {
-  Panel,
-  isCosPanel,
-  isCbssPanel,
-  isCevizPanel,
-  isReferenceTreePanel,
-  isIlsPanel
-} from '@/typings/sidePanel.js';
-import { eventService, EventType } from '@/services/event.js';
-import { useEditorStore } from '@/stores/editor.js';
-import { usePreferencesStore } from '@/stores/preferences.js';
-
-defineOptions({ name: 'SidePanel' });
-
-const props = defineProps<{ panels: { [key: string]: Component } }>();
-
-const preferencesStore = usePreferencesStore();
-const editorStore = useEditorStore();
-
-const shouldShowPanel = computed<boolean>(() => editorStore.sidePanel !== Panel.Blank);
-const shouldShowSecondaryPanel = computed<boolean>(() => editorStore.secondarySidePanel !== Panel.Blank);
-const shouldShowSeparator = computed<boolean>(() => shouldShowPanel.value || shouldShowSecondaryPanel.value);
-
-const panelPresentInEditor = computed<boolean>(() => {
-  switch (editorStore.editorType) {
-    case EditorType.Cos:
-      return isCosPanel(editorStore.sidePanel) && isCosPanel(editorStore.lastSidePanelState);
-    case EditorType.Ceviz:
-      return isCevizPanel(editorStore.sidePanel) && isCevizPanel(editorStore.lastSidePanelState);
-    case EditorType.Cbss:
-      return isCbssPanel(editorStore.sidePanel) && isCbssPanel(editorStore.lastSidePanelState);
-    case EditorType.Ils:
-      return isIlsPanel(editorStore.sidePanel) && isIlsPanel(editorStore.lastSidePanelState);
-    case EditorType.ReferenceTree:
-      return (
-        isReferenceTreePanel(editorStore.sidePanel) &&
-        isReferenceTreePanel(editorStore.lastSidePanelState)
-      );
-    default:
-      return false;
-  }
-});
-
-const isSelected = (panel: Panel): boolean => editorStore.sidePanel === panel;
-
-const toggleSelection = ({ panel }: { panel: Panel; options?: Record<string, any> | undefined }) => {
-  const newPanel = isSelected(panel) ? Panel.Blank : panel;
-  editorStore.setSidePanel(newPanel);
+```typescript
+const onScrollEvent = (event: Event) => {
+  console.log('Scroll event:', event);
+  // Ensure event propagation is not stopped
+  event.stopPropagation = false;
+  event.preventDefault = false;
 };
 
-const triggerLastPanel = () => {
-  if (shouldShowPanel.value) {
-    editorStore.setSidePanel(Panel.Blank);
-    editorStore.setSecondarySidePanel(Panel.Blank);
-  } else if (panelPresentInEditor.value) {
-    editorStore.setSidePanel(editorStore.lastSidePanelState);
-  }
+const onDiagramMounted = (target: string) => {
+  gojsDiagram.attachDiagram(target);
+  // Attach scroll event listener to the diagram
+  gojsDiagram.diagram.addDiagramListener('DocumentScroll', onScrollEvent);
+  console.log('Diagram mounted:', target);
 };
-
-const shortcutHandler = (shortcut: Shortcut) => {
-  if (shortcut === Shortcut.ToggleRecentPanel) triggerLastPanel();
-};
-
-const stopScrollPropagation = (event: Event) => {
-  event.stopPropagation();
-};
-
-onMounted(() => {
-  if (
-    Object.keys(props.panels).includes(preferencesStore.initialSidePanel) &&
-    panelPresentInEditor.value
-  ) {
-    editorStore.setSidePanel(preferencesStore.initialSidePanel);
-  } else {
-    editorStore.setSidePanel(Panel.Blank);
-  }
-  eventService.on(EventType.ToggleSidePanel, toggleSelection);
-  eventService.on(EventType.Shortcut, shortcutHandler);
-});
-
-onBeforeUnmount(() => {
-  eventService.off(EventType.ToggleSidePanel, toggleSelection);
-  eventService.off(EventType.Shortcut, shortcutHandler);
-});
-</script>
-
-<style scoped>
-aside {
-  display: flex;
-  flex-direction: column;
-  flex-grow: 0;
-  background: var(--header-color);
-}
-
-.panel-tray {
-  flex-grow: 0;
-  flex-shrink: 0;
-  flex: 1;
-  flex-basis: var(--property-panel-width);
-  width: var(--property-panel-width);
-  overflow-x: hidden;
-  overflow-y: auto;
-  border-left: var(--header-border-thickness) solid var(--sidepanel-border-color);
-  background: var(--header-color);
-  z-index: 3;
-}
-
-.separator {
-  height: 1.5px;
-  border-left: var(--header-border-thickness) solid var(--sidepanel-border-color);
-  background-color: var(--sidepanel-border-color);
-}
-
-::-webkit-scrollbar-track-piece,
-::-webkit-scrollbar-corner,
-::-webkit-resizer {
-  background: var(--header-color);
-}
-
-::-webkit-scrollbar-thumb {
-  border: 5px solid var(--header-color);
-}
-</style>
 ```
 
-#### Dropdown Component
+#### Step 2: Inspect and Adjust Focus Management
+Ensure that the `useFocusable` composable is not interfering with the scroll events. Ensure that the focus and blur methods do not interfere with the scroll behavior.
 
-Ensure you prevent scroll propagation in your dropdown component as well.
-
-```vue
-<template>
-  <div class="search-property-wrapper" @click="openDropdown">
-    <app-input
-      id="search-input"
-      v-model="searchString"
-      raised
-      :alt-style="altStyle"
-      type="text"
-      :placeholder="inputPlaceholder"
-      autocomplete="off"
-      icon-label="search"
-      class="search-input"
-      @click.stop="openDropdown"
-    >
-      <app-icon-button
-        v-if="searchString"
-        name="times"
-        class="clickable"
-        stop-propagation
-        @click="clearSearch"
-      />
-    </app-input>
-    <div v-if="opened" ref="searchDropdown" tabindex="0" class="results" @mousedown="focusDropdown" @scroll.stop="stopScrollPropagation">
-      <ol class="scrollable" @scroll.stop="stopScrollPropagation">
-        <template
-          v-if="
-            matchedResultsFilter(searchString, filteredAvailableValues).length ||
-            matchedResultsFilter(searchString, selectedValues).length
-          "
-        >
-          <template
-            v-if="matchedResultsFilter(searchString, filteredAvailableValues).length && enabled"
-          >
-            <li class="small">{{ availableLabel }}:</li>
-            <li
-              v-for="value of matchedResultsFilter(searchString, filteredAvailableValues)"
-              :key="parseSearchValue(value)"
-              :title="parseSearchValue(value)"
-              class="selectable"
-              @click="select(value)"
-            >
-              <slot name="availableValue" v-bind="value">{{ parseSearchValue(value) }}</slot>
-            </li>
-          </template>
-          <template v-if="matchedResultsFilter(searchString, selectedValues).length">
-            <li class="small">{{ selectedLabel }}:</li>
-            <li
-              v-for="value of matchedResultsFilter(searchString, selectedValues)"
-              :key="parseSearchValue(value)"
-              class="selectable"
-              :title="parseSearchValue(value)"
-            >
-              <slot name="selectedValue" v-bind="value">{{ parseSearchValue(value) }}</slot>
-            </li>
-          </template>
-        </template>
-        <li v-else-if="!noMatchFound">{{ t('properties.noAvailableValues') }}</li>
-        <li v-if="noMatchFound">{{ t('properties.noMatch') }}</li>
-      </ol>
-    </div>
-  </div>
-</template>
-
-<script setup lang="ts" generic="T extends MinimalSearchValue">
-import { computed, ref, onMounted, onBeforeUnmount, watch } from 'vue';
-import AppInput from '@/components/common/formElements/input/Input.vue';
-import AppIconButton from '@/components/common/icon/IconButton.vue';
-import { useI18n } from 'vue-i18n';
-import { eventService, EventType } from '@/services/event.js';
-import { Shortcut } from '@/typings/shortcut.js';
-import {
-  matchedResultsFilter,
-  MinimalSearchValue,
-  parseSearchValue
-} from '@/components/common/search/helpers/match.js';
-
-defineOptions({ name: 'SearchProperties' });
-
-const props = withDefaults(
-  defineProps<{
-    modelValue?: string;
-    altStyle?: boolean;
-    selectedValues?: T[];
-    availableValues?: T[];
-    enabled?: boolean;
-    inputPlaceholder?: string;
-    labelKey?: string;
-  }>(),
-  {
-    modelValue: '',
-
-
-    selectedValues: () => [],
-    availableValues: () => [],
-    inputPlaceholder: 'Search list',
-    labelKey: ''
+#### Example: Focus Management
+```typescript
+function focus(): void {
+  if (focusElement?.value?.focus) {
+    focusElement.value.focus();
+  } else if (focusElement?.value?.mainElement?.focus) {
+    focusElement.value.mainElement.focus();
+  } else if ((focusElement?.value as any)?.$el?.focus) {
+    (focusElement.value as any).$el.focus();
   }
-);
+  console.log('Element focused:', focusElement.value);
+}
 
-const emit = defineEmits<{
-  'update:modelValue': [value: string];
-  blur: [value: string];
-  selected: [value: T];
-  clear: [];
-  remove: [value: T];
-}>();
-
-const { t } = useI18n();
-const searchString = ref(props.modelValue);
-const searchDropdown = ref<HTMLElement | null>(null);
-const wrapper = ref<HTMLElement | null>(null);
-const opened = ref(false);
-
-const filteredAvailableValues = computed<T[]>(() => {
-  const valueMap = props.selectedValues.map(val => parseSearchValue(val));
-  return props.availableValues.filter(value => !valueMap.includes(parseSearchValue(value)));
-});
-
-const noMatchFound = computed<boolean>(
-  () =>
-    !!searchString.value &&
-    !matchedResultsFilter(searchString.value, props.selectedValues).length &&
-    (!props.enabled || !matchedResultsFilter(searchString.value, props.availableValues).length)
-);
-
-const parsedLabelKey = computed<string>(() => (props.labelKey ? ` ${t(props.labelKey)}` : ''));
-const availableLabel = computed<string>(() => t('properties.available') + parsedLabelKey.value);
-const selectedLabel = computed<string>(() => t('properties.selected') + parsedLabelKey.value);
-
-const clearSearch = () => {
-  searchString.value = '';
-  emit('clear');
-};
-
-const select = (value: T) => {
-  searchString.value = parseSearchValue(value);
-  emit('selected', value);
-};
-
-const focusDropdown = () => {
-  if (searchDropdown?.value?.focus) {
-    searchDropdown.value.focus();
-  } else if ((searchDropdown?.value as any)?.$el?.focus) {
-    (searchDropdown.value as any).$el.focus();
+function blur(): void {
+  if (focusElement?.value?.blur) {
+    focusElement.value.blur();
+  } else if (focusElement?.value?.mainElement?.blur) {
+    focusElement.value.mainElement.blur();
+  } else if ((focusElement?.value as any)?.$el?.blur) {
+    (focusElement.value as any).$el.blur();
   }
-  opened.value = true;
-};
-
-const openDropdown = () => {
-  opened.value = true;
-};
-
-const closeDropdown = () => {
-  opened.value = false;
-  emit('blur', searchString.value);
-};
-
-const handleClickOutside = (event: MouseEvent) => {
-  if (wrapper.value && !wrapper.value.contains(event.target as Node)) {
-    closeDropdown();
-  }
-};
-
-const handleShortcut = (shortcut: Shortcut) => {
-  if (shortcut === Shortcut.Escape) {
-    closeDropdown();
-  }
-};
-
-const stopScrollPropagation = (event: Event) => {
-  event.stopPropagation();
-};
-
-onMounted(() => {
-  eventService.on(EventType.Click, handleClickOutside);
-  eventService.on(EventType.Shortcut, handleShortcut);
-});
-
-onBeforeUnmount(() => {
-  eventService.off(EventType.Click, handleClickOutside);
-  eventService.off(EventType.Shortcut, handleShortcut);
-});
-
-watch(searchString, value => emit('update:modelValue', value));
-</script>
-
-<style scoped>
-.search-property-wrapper {
-  position: relative;
+  console.log('Element blurred:', focusElement.value);
 }
-.results {
-  width: 100%;
-  position: absolute;
-  z-index: 9;
-  box-shadow: var(--search-results-shadow);
-  border: 1px solid var(--search-results-border-color);
-}
-li {
-  background: var(--dropdown-color);
-  height: 2.5em;
-  padding: 0 var(--base-spacing-2);
-  display: flex;
-  flex-direction: row;
-  align-content: center;
-  align-items: center;
-  user-select: none;
-  white-space: nowrap;
-}
-.scrollable {
-  overflow: hidden;
-  overflow-y: auto;
-  max-height: 30vh;
-}
-.selectable {
-  cursor: pointer;
-}
-.selectable:hover {
-  background: var(--dropdown-hover-color);
-}
-.search-input {
-  height: 40px;
-}
-.search-input:deep(.field) {
-  height: 100%;
-}
-</style>
 ```
 
-### Step 3: Test the Changes
+### Step 3: Modify Scroll Handling in Diagram and Side Panel
+Ensure that the diagram and side panel handle scroll events correctly and do not interfere with each other.
 
-After making these changes, test the scroll behavior again by placing your mouse over the `SidePanel` or the dropdown and ensuring that scrolling within these components does not affect the `SplitView`. If the issue persists, further debugging might be needed to ensure that no other parts of your application are interfering with the scroll behavior.
+#### Example: Modify Scroll Handling
+```typescript
+const onDiagramMounted = (target: string) => {
+  gojsDiagram.attachDiagram(target);
+  // Prevent the diagram from intercepting scroll events when the picker is active
+  gojsDiagram.diagram.addDiagramListener('DocumentScroll', (event) => {
+    if (isPickerActive()) {
+      console.log('Picker active, scroll event:', event);
+      event.bubbles = true;
+      event.handled = false;
+    }
+  });
+};
 
-These steps ensure that the scroll events are contained within the intended component, allowing for independent scrolling in the `SplitView`, `SidePanel`, and dropdown components. If the issue persists, further debugging might be needed to ensure that no other parts of your application are interfering with the scroll behavior.
+const isPickerActive = () => {
+  return diagramStore.selectedToolItem?.toolType === ToolType.PickerTool;
+};
+```
+
+### Step 4: Debug Event Emission
+Check the events emitted by `eventService` and ensure they are not causing the scroll behavior to change unexpectedly.
+
+#### Example: Debug Event Emission
+```typescript
+eventService.on(EventType.Shortcut, (shortcut) => {
+  console.log('Shortcut event:', shortcut);
+});
+
+eventService.on(EventType.Click, (event) => {
+  console.log('Click event:', event);
+});
+```
+
+### Conclusion
+By following these steps, you can diagnose and potentially resolve the issue with scroll events being intercepted or improperly handled when the picker tool is active. If these steps do not resolve the issue, consider providing more specific parts of the codebase related to event handling or scroll management for further analysis.
