@@ -1,31 +1,31 @@
-I see the issue you're facing with the scroll behavior in your application. It seems that the main problem is that the scroll events are propagating to parent elements, which is causing the main `SplitView` to scroll instead of the `SidePanel` or the dropdown within it.
+To resolve the scroll conflict issue effectively, you should focus on managing the event listeners and ensuring the scroll events are handled correctly at the component level. Specifically, you need to stop the scroll events from propagating up the DOM tree when they occur within the `SidePanel` or the dropdown components.
 
-To address this issue, you need to ensure that when the user is interacting with a specific scrollable area, the scroll events are contained within that area and do not propagate to parent elements. Here are the steps you can take to resolve this:
+Here's a more detailed approach to tackle the scroll issue:
 
-### Step 1: Prevent Scroll Propagation
+### Step 1: Stop Scroll Propagation in Critical Components
 
-You need to stop the scroll events from propagating to the parent components. This can be done by adding an event listener to the scrollable elements and calling `event.stopPropagation()`.
+Ensure that the scroll events in the `SidePanel` and dropdown components are not propagated to the parent components. This involves adding event listeners to stop the scroll events from bubbling up.
 
-### Step 2: Handle Scroll Events in Child Components
+### Step 2: Utilize Event Listeners to Manage Scroll Behavior
 
-Ensure that scroll events in the child components (like the dropdown) are handled properly without affecting the parent components.
+You can use `event.stopPropagation()` and `event.preventDefault()` judiciously to manage the scroll behavior.
 
 ### Example Implementation:
 
-Let's update your `SidePanel.vue` and dropdown components to prevent scroll propagation.
-
 #### SidePanel.vue
+
+Modify the `SidePanel.vue` component to stop the scroll propagation.
 
 ```vue
 <template>
-  <aside class="side-panel" data-testid="sidePanel" :data-expanded="shouldShowPanel">
-    <section v-show="shouldShowPanel" data-testid="sidePanel-tray" class="panel-tray" @scroll.stop>
+  <aside class="side-panel" data-testid="sidePanel" :data-expanded="shouldShowPanel" @scroll.stop="stopScrollPropagation">
+    <section v-show="shouldShowPanel" data-testid="sidePanel-tray" class="panel-tray">
       <keep-alive v-for="(component, key) of panels" :key="key">
         <component :is="component" v-if="key === editorStore.sidePanel" />
       </keep-alive>
     </section>
     <section v-show="shouldShowSeparator" class="separator"></section>
-    <section v-show="shouldShowSecondaryPanel" data-testid="sidePanel-tray" class="panel-tray" @scroll.stop>
+    <section v-show="shouldShowSecondaryPanel" data-testid="sidePanel-tray" class="panel-tray">
       <keep-alive v-for="(component, key) of panels" :key="key">
         <component :is="component" v-if="key === editorStore.secondarySidePanel" />
       </keep-alive>
@@ -98,6 +98,10 @@ const triggerLastPanel = () => {
 
 const shortcutHandler = (shortcut: Shortcut) => {
   if (shortcut === Shortcut.ToggleRecentPanel) triggerLastPanel();
+};
+
+const stopScrollPropagation = (event: Event) => {
+  event.stopPropagation();
 };
 
 onMounted(() => {
@@ -185,8 +189,8 @@ Ensure you prevent scroll propagation in your dropdown component as well.
         @click="clearSearch"
       />
     </app-input>
-    <div v-if="opened" ref="searchDropdown" tabindex="0" class="results" @mousedown="focusDropdown" @scroll.stop>
-      <ol class="scrollable" @scroll.stop>
+    <div v-if="opened" ref="searchDropdown" tabindex="0" class="results" @mousedown="focusDropdown" @scroll.stop="stopScrollPropagation">
+      <ol class="scrollable" @scroll.stop="stopScrollPropagation">
         <template
           v-if="
             matchedResultsFilter(searchString, filteredAvailableValues).length ||
@@ -251,10 +255,10 @@ const props = withDefaults(
     inputPlaceholder?: string;
     labelKey?: string;
   }>(),
- 
-
- {
+  {
     modelValue: '',
+
+
     selectedValues: () => [],
     availableValues: () => [],
     inputPlaceholder: 'Search list',
@@ -332,6 +336,10 @@ const handleShortcut = (shortcut: Shortcut) => {
   }
 };
 
+const stopScrollPropagation = (event: Event) => {
+  event.stopPropagation();
+};
+
 onMounted(() => {
   eventService.on(EventType.Click, handleClickOutside);
   eventService.on(EventType.Shortcut, handleShortcut);
@@ -387,8 +395,8 @@ li {
 </style>
 ```
 
-### Step 3: Testing the Changes
+### Step 3: Test the Changes
 
-After making these changes, test the scroll behavior again. Place your mouse over the `SidePanel` or the dropdown and ensure that scrolling within these components does not affect the `SplitView`.
+After making these changes, test the scroll behavior again by placing your mouse over the `SidePanel` or the dropdown and ensuring that scrolling within these components does not affect the `SplitView`. If the issue persists, further debugging might be needed to ensure that no other parts of your application are interfering with the scroll behavior.
 
-By stopping the scroll propagation, you can ensure that the scroll events are contained within the intended component, allowing for independent scrolling in the `SplitView`, `SidePanel`, and dropdown components. If the issue persists, further debugging might be needed to ensure that no other parts of your application are interfering with the scroll behavior.
+These steps ensure that the scroll events are contained within the intended component, allowing for independent scrolling in the `SplitView`, `SidePanel`, and dropdown components. If the issue persists, further debugging might be needed to ensure that no other parts of your application are interfering with the scroll behavior.
