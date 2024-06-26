@@ -1,38 +1,64 @@
-Given the additional context and the provided code for the `eventService` and `useFocusable`, the issue likely stems from how the picker tool interacts with the scroll events. Here's a structured approach to diagnose and resolve the issue:
+If your project has ESLint enabled and does not allow `console.log`, it's common to use a logging library or a custom logging service. From the code snippets you provided, it looks like there is a `loggingService` available in the project.
 
-### Analysis and Potential Issues
-1. **Event Handling Interference**: The picker tool might be intercepting scroll events, preventing them from propagating correctly.
-2. **Focus Management**: The `useFocusable` composable could be affecting how focus and blur events are managed, potentially interfering with scrolling behavior.
-3. **Event Propagation**: The `eventService` might be emitting events that change the behavior of components when the picker tool is active.
+Let's use `loggingService` for logging in the modifications:
 
-### Step-by-Step Diagnosis and Fixes
+### Detailed Investigation Steps with loggingService
 
-#### Step 1: Ensure Event Propagation
-Ensure that the scroll events are correctly propagated when the picker tool is enabled. Check if any event listener or handler might be preventing this.
+#### 1. **Check Scroll Handling in the Picker Tool**
+The picker tool might be intercepting scroll events or causing focus changes that interfere with normal scroll behavior.
 
-#### Example: Modify Picker Tool Event Handling
-Add logging to ensure that scroll events are not being intercepted by the picker tool:
+**TrackItemProperty.vue**
+Add logging to the `toggleEdit` method to see if it interferes with scroll events.
+
+```typescript
+const toggleEdit = (): void => {
+  if (diagramStore.selectedToolItem?.category !== props.category) {
+    diagramStore.selectToolItem({
+      category: props.category as ToolItemCategory,
+      toolType: ToolType.PickerTool,
+      toolName: 'MultiReferencePickerTool',
+      id: props.id
+    });
+
+    showAll.value = true;
+    if (!isAllValuesHighlighted()) {
+      highlight(props.value);
+    }
+    loggingService.info('Picker tool activated:', { toolItem: diagramStore.selectedToolItem });
+    return;
+  }
+
+  diagramStore.selectToolItem(null);
+  loggingService.info('Picker tool deactivated');
+};
+```
+
+#### 2. **Ensure Proper Event Propagation**
+Make sure that scroll events are not being stopped by any event listeners.
+
+**Editor.vue**
+Add a listener to log scroll events and ensure they are propagated.
 
 ```typescript
 const onScrollEvent = (event: Event) => {
-  console.log('Scroll event:', event);
-  // Ensure event propagation is not stopped
+  loggingService.info('Scroll event:', { event });
   event.stopPropagation = false;
   event.preventDefault = false;
 };
 
 const onDiagramMounted = (target: string) => {
   gojsDiagram.attachDiagram(target);
-  // Attach scroll event listener to the diagram
   gojsDiagram.diagram.addDiagramListener('DocumentScroll', onScrollEvent);
-  console.log('Diagram mounted:', target);
+  loggingService.info('Diagram mounted:', { target });
 };
 ```
 
-#### Step 2: Inspect and Adjust Focus Management
-Ensure that the `useFocusable` composable is not interfering with the scroll events. Ensure that the focus and blur methods do not interfere with the scroll behavior.
+#### 3. **Focus Management in useFocusable**
+Check if the focus management interferes with scrolling. 
 
-#### Example: Focus Management
+**useFocusable.ts**
+Add logging to focus and blur methods.
+
 ```typescript
 function focus(): void {
   if (focusElement?.value?.focus) {
@@ -42,7 +68,7 @@ function focus(): void {
   } else if ((focusElement?.value as any)?.$el?.focus) {
     (focusElement.value as any).$el.focus();
   }
-  console.log('Element focused:', focusElement.value);
+  loggingService.info('Element focused:', { element: focusElement.value });
 }
 
 function blur(): void {
@@ -53,45 +79,27 @@ function blur(): void {
   } else if ((focusElement?.value as any)?.$el?.blur) {
     (focusElement.value as any).$el.blur();
   }
-  console.log('Element blurred:', focusElement.value);
+  loggingService.info('Element blurred:', { element: focusElement.value });
 }
 ```
 
-### Step 3: Modify Scroll Handling in Diagram and Side Panel
-Ensure that the diagram and side panel handle scroll events correctly and do not interfere with each other.
+#### 4. **Inspect eventService for Interference**
+Check if the events emitted by `eventService` are causing unexpected behavior.
 
-#### Example: Modify Scroll Handling
-```typescript
-const onDiagramMounted = (target: string) => {
-  gojsDiagram.attachDiagram(target);
-  // Prevent the diagram from intercepting scroll events when the picker is active
-  gojsDiagram.diagram.addDiagramListener('DocumentScroll', (event) => {
-    if (isPickerActive()) {
-      console.log('Picker active, scroll event:', event);
-      event.bubbles = true;
-      event.handled = false;
-    }
-  });
-};
+**eventService.js**
+Add logging to see when events are emitted.
 
-const isPickerActive = () => {
-  return diagramStore.selectedToolItem?.toolType === ToolType.PickerTool;
-};
-```
-
-### Step 4: Debug Event Emission
-Check the events emitted by `eventService` and ensure they are not causing the scroll behavior to change unexpectedly.
-
-#### Example: Debug Event Emission
 ```typescript
 eventService.on(EventType.Shortcut, (shortcut) => {
-  console.log('Shortcut event:', shortcut);
+  loggingService.info('Shortcut event:', { shortcut });
 });
 
 eventService.on(EventType.Click, (event) => {
-  console.log('Click event:', event);
+  loggingService.info('Click event:', { event });
 });
 ```
 
 ### Conclusion
-By following these steps, you can diagnose and potentially resolve the issue with scroll events being intercepted or improperly handled when the picker tool is active. If these steps do not resolve the issue, consider providing more specific parts of the codebase related to event handling or scroll management for further analysis.
+These steps should help identify where the interference is happening. By adding logging using `loggingService` and ensuring proper event propagation, we can narrow down the issue. If these steps do not resolve the problem, consider focusing on any custom scroll handling logic within the picker tool or related components.
+
+Would you like to proceed with these modifications and check the logs for further analysis? Or do you have specific areas in the codebase where you suspect the problem might be?
