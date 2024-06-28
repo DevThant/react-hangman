@@ -1,3 +1,465 @@
+Let's implement the proposed solutions to ensure that scroll events are handled appropriately when the picker tool is active. We will address the problem by:
+
+1. **Checking Event Propagation in the Picker Tool**
+2. **Custom Scroll Handling in the Picker Tool**
+3. **Adding Event Listeners in Vue Components**
+
+We'll modify the necessary files (`MultiReferenceProperty.vue`, `multiReferenceClickPickingTool.ts`, `mxClickPickingTool.ts`) to ensure proper event handling.
+
+### `multiReferenceClickPickingTool.ts` - Solution 1: Check Event Propagation
+
+Add the following method to ensure that scroll events are properly propagated when the picker tool is active:
+
+```typescript
+public handleCustomScroll(): void {
+  if (this.isPickerActive && this.diagram.isMouseCaptured) {
+    const mousePoint = this.diagram.lastInput.documentPoint;
+    const isWithinSidePanel = this.isWithinSidePanel(mousePoint);
+
+    if (isWithinSidePanel) {
+      // Prevent default diagram scroll behavior
+      this.diagram.lastInput.bubbles = false;
+      this.scrollSidePanel();
+    } else {
+      // Proceed with diagram scroll behavior
+      this.diagram.lastInput.bubbles = true;
+      super.doMouseWheel();
+    }
+  }
+}
+
+private isWithinSidePanel(point: Point): boolean {
+  // Assuming a fixed boundary for the side panel, adjust as needed
+  return point.x > 300; // Example value, change according to your layout
+}
+
+private scrollSidePanel(): void {
+  // Custom logic to scroll the side-panel programmatically
+  const sidePanel = document.getElementById('sidePanel');
+  if (sidePanel) {
+    sidePanel.scrollTop += 10; // Adjust scroll speed as necessary
+  }
+}
+
+public doMouseWheel(): void {
+  this.handleCustomScroll();
+}
+```
+
+### `mxClickPickingTool.ts` - Custom Scroll Handling
+
+Add the following method for handling custom scroll events:
+
+```typescript
+public handleCustomScroll(): void {
+  if (this.isPickerActive && this.diagram.isMouseCaptured) {
+    const mousePoint = this.diagram.lastInput.documentPoint;
+    const isWithinSidePanel = this.isWithinSidePanel(mousePoint);
+
+    if (isWithinSidePanel) {
+      // Prevent default diagram scroll behavior
+      this.diagram.lastInput.bubbles = false;
+      this.scrollSidePanel();
+    } else {
+      // Proceed with diagram scroll behavior
+      this.diagram.lastInput.bubbles = true;
+      super.doMouseWheel();
+    }
+  }
+}
+
+private isWithinSidePanel(point: Point): boolean {
+  // Assuming a fixed boundary for the side panel, adjust as needed
+  return point.x > 300; // Example value, change according to your layout
+}
+
+private scrollSidePanel(): void {
+  // Custom logic to scroll the side-panel programmatically
+  const sidePanel = document.getElementById('sidePanel');
+  if (sidePanel) {
+    sidePanel.scrollTop += 10; // Adjust scroll speed as necessary
+  }
+}
+
+public doMouseWheel(): void {
+  this.handleCustomScroll();
+}
+```
+
+### `MultiReferenceProperty.vue` - Event Listeners in Vue Component
+
+Add a custom scroll event handler in the Vue component:
+
+```vue
+<template>
+  <div id="sidePanel" @wheel="handleSidePanelScroll">
+    <!-- Side panel content -->
+    <app-property-container
+      :id="id"
+      v-bind="$attrs"
+      :full-width="true"
+      :editing="isEditing"
+      :editable="editorStore.isEditMode && icon !== undefined"
+      :icon="icon"
+      :title="t('common.edit')"
+      :value-size="value.references.length || 0"
+      property-type="multiReference"
+      @toggle-editing="toggleEdit"
+    >
+      <template #label-row-end>
+        <div class="label-row-end">
+          <app-icon-button
+            :name="showAll ? 'chevron-up' : 'chevron-down'"
+            :title="t('common.all')"
+            @click="toggleShowAll"
+          />
+        </div>
+      </template>
+      <div class="element">
+        <app-indicator
+          v-if="!isEmpty()"
+          class="inline"
+          :highlighted="isAllValuesHighlighted()"
+          :highlightable="true"
+          :type="IndicatorType.Main"
+          @click="highlight(value.references)"
+        >
+          {{ t("common.all") }}
+        </app-indicator>
+        <app-indicator
+          v-if="isTrackItems()"
+          class="inline"
+          :highlighted="isSplitViewSelected()"
+          @click="togglePositionsView()"
+        >
+          {{ t("common.positions") }}
+        </app-indicator>
+        <div v-if="showAll">
+          <app-search-properties
+            :available-values="availableValues"
+            :selected-values="value.references"
+            :enabled="!$attrs.readonly"
+            :input-placeholder="t('properties.search')"
+            :label-key="'properties.labels.' + id"
+            @selected="addValue"
+            ><template #selectedValue="selectedValue">
+              <app-deletable-indicator
+                :value="selectedValue"
+                :is-editing="isEditing"
+                @delete="deleteValue(selectedValue)"
+                @select="selectItemGroup(selectedValue)"
+                @highlight="highlight([selectedValue])"
+              /> </template
+          ></app-search-properties>
+          <div
+            v-for="propValue in value.references"
+            :key="propValue.displayText"
+            class="indicator-wrapper"
+          >
+            <app-deletable-indicator
+              :value="propValue"
+              :is-editing="isEditing"
+              @delete="deleteValue(propValue)"
+              @select="selectItemGroup(propValue)"
+              @highlight="highlight([propValue])"
+            />
+          </div>
+        </div>
+      </div>
+    </app-property-container>
+  </div>
+</template>
+
+<script setup lang="ts">
+import { computed, onBeforeUnmount, onMounted, ref } from "vue";
+import { useI18n } from "vue-i18n";
+import { ToolType, ToolItemCategory } from "@/typings/tools.js";
+import { SplitView } from "@/typings/splitView.js";
+import { PlainSelection } from "@/typings/selection/PlainSelection.js";
+import { PlainHighlight } from "@/typings/highlight/PlainHighlight.js";
+import AppDeletableIndicator from "@/components/common/indicator/DeletableIndicator.vue";
+import AppIndicator from "@/components/common/indicator/Indicator.vue";
+import AppPropertyContainer from "@/components/common/sidePanelElements/PropertyContainer.vue";
+import AppSearchProperties from "@/components/common/search/SearchProperties.vue";
+import AppIconButton from "@/components/common/icon/IconButton.vue";
+import { eventService, EventType } from "@/services/event.js";
+import { useInfrastructureStore } from "@/stores/infrastructure.js";
+import { useDiagramStore } from "@/stores/diagram.js";
+import { useEditorStore } from "@/stores/editor.js";
+import { IndicatorType } from "@/typings/indicator.js";
+
+defineOptions({ name: "MultiReferenceProperty" });
+
+const props = withDefaults(
+  defineProps<{
+    id: string;
+    value: MXValueReferenceArray;
+    availableValues: MXValueReference[];
+    category?: string;
+  }>(),
+  { category: "Unknown" }
+);
+
+const emit = defineEmits<{
+  change: [value: MXValueReferenceArray, modifyType: MXArrayUpdateType];
+}>();
+
+const { t } = useI18n();
+const editorStore = useEditorStore();
+const infrastructureStore = useInfrastructureStore();
+const diagramStore = useDiagramStore();
+
+const showAll = ref<boolean>(false);
+
+const isEditing = computed<boolean>(
+  () =>
+    diagramStore.selectedToolItem?.category === props.id &&
+    diagramStore.selectedToolItem.toolType === ToolType.PickerTool
+);
+
+const currentXmiIds = computed<string[]>(
+  () =>
+    props.value.references?.map((p) =>
+      extractXmiId(p.objectIdentifier?.id ?? "")
+    ) ?? []
+);
+
+const icon = computed<string | undefined>(() => {
+  const valueCategories = props.value.references.map((r) => r.eClass);
+  const availableValueCategories = props.availableValues.map((v) => v.eClass);
+  const uniqCategories = uniqueBy(
+    [...valueCategories, ...availableValueCategories],
+    (category) => category
+  );
+
+  const showPicker = uniqCategories.some(
+    (category) =>
+      category && category in { ...InfrastructureLayer, ...IlsLayer }
+  );
+
+  return showPicker ? "picker" : undefined;
+});
+
+function getNodesToHighlight(propValues: MXValueReference[]): string[] {
+  const nodes: string[] = [];
+
+  for (const propValue of propValues) {
+    if (propValue.objectIdentifier?.id && propValue.eClass) {
+      const propId = extractXmiId(propValue.objectIdentifier?.id ?? "");
+      const isLeg = ["Leg", "FoulingLeg"].some(
+        (legType) => propValue.eClass === legType
+      );
+      if (isLeg) {
+        const node = infrastructureStore.getNodeFromLeg(propId);
+
+        if (node) {
+          nodes.push(node.xmiId);
+        }
+      } else {
+        nodes.push(propId);
+      }
+    }
+  }
+
+  return nodes.filter(isNotEmpty);
+}
+
+function isAllValuesHighlighted(): boolean {
+  if (editorStore.highlighted.isEmpty()) return false;
+
+  const nodesToHighlight = getNodesToHighlight(props.value.references).filter(
+    Boolean
+  );
+
+  return nodesToHighlight.every((node) =>
+    editorStore.highlighted.expandedIds.includes(node)
+  );
+}
+
+function isHighlighted(id: MXValueReference): boolean {
+  const [nodeToHighlight] = getNodesToHighlight#([id]);
+  return editorStore.highlighted.includes(nodeToHighlight);
+}
+
+const highlight = (propValues: MXValueReference[]): void => {
+  const nodesToHighlight = getNodesToHighlight(propValues);
+  editorStore.toggleHighlighted(new PlainHighlight(nodesToHighlight));
+  eventService.emit(EventType.CenterHighlighted);
+
+  for (const propValue of propValues) {
+    const layer = propValue.eClass ?? "";
+    diagramStore.setLayerVisibility([{ layer, visible: true }]);
+  }
+};
+
+const deleteSelected = (xmiId: XmiId): void => {
+  emit(
+    "change",
+    {
+      ...props.value,
+      references: props.value.references.filter(
+        (id) => id.objectIdentifier?.id === xmiId
+      ),
+    },
+    MXArrayUpdateType.Remove
+  );
+
+  editorStore.setHighlighted(
+    new PlainHighlight(
+      editorStore.highlighted.filter((id: string) => id !== xmiId)
+    )
+  );
+};
+
+const addSelected = (newValue: MXValueReference): void => {
+  editorStore.setHighlighted(
+    new PlainHighlight([
+      ...editorStore.highlighted.expandedIds,
+      newValue.objectIdentifier?.id ?? "",
+    ])
+  );
+
+  emit(
+    "change",
+    { ...props.value, references: [newValue] },
+    MXArrayUpdateType.Add
+  );
+};
+
+const addValue = (propValue: MXValueReference): void => {
+  const includeXmiId = extractXmiId(propValue.objectIdentifier?.id ?? "");
+  if (!currentXmiIds.value.includes(includeXmiId)) addSelected(propValue);
+};
+const deleteValue = (propValue: MXValueReference): void => {
+  const excludeXmiId = extractXmiId(propValue.objectIdentifier?.id ?? "");
+  deleteSelected(excludeXmiId);
+};
+
+const toggleEdit = (): void => {
+  if (diagramStore.selectedToolItem?.category !== props.id) {
+    diagramStore.selectToolItem({
+      category: props.id as ToolItemCategory,
+      toolType: ToolType.PickerTool,
+      toolName: "MultiReferencePickerTool",
+      id: props.id,
+    });
+
+    showAll.value = true;
+    if (!isAllValuesHighlighted()) {
+      highlight(props.value.references);
+    }
+    return;
+  }
+
+  diagramStore.selectToolItem(null);
+};
+
+const isEmpty = (): boolean => currentXmiIds.value.length === 0;
+
+const toggleShowAll = (): void => {
+  showAll.value = !showAll.value;
+};
+
+const isSplitViewSelected = (): boolean =>
+  editorStore.isSplitViewShown(SplitView.Positions);
+
+const togglePositionsView = (): void => {
+  editorStore.toggleSplitView(SplitView.Positions);
+};
+
+const handleSidePanelToggle = (): void => {
+  if (isEditing.value) {
+    toggleEdit();
+  }
+};
+
+const isTrackItems = (): boolean => props.id === "trackItems";
+const isLeg = (): boolean => props.id === "ends";
+
+const selectItemGroup = (propValue: MXValueReference): void => {
+  if (!propValue.objectIdentifier) return;
+  const selection = isLeg()
+    ? new LegSelection(
+        [propValue.objectIdentifier],
+        infrastructureStore.getNodeFromLeg
+      )
+    : new PlainSelection([propValue.objectIdentifier]);
+
+  editorStore.setSelected(selection);
+  if (editorStore.sidePanel !== Panel.Properties) {
+    eventService.emit(EventType.ToggleSidePanel, { panel: Panel.Properties });
+  }
+
+  const nodesToHighlight = getNodesToHighlight([propValue]);
+  editorStore.setHighlighted(new PlainHighlight(nodesToHighlight));
+
+  if (isHighlighted(propValue)) {
+    editorStore.setHighlighted(
+      new PlainHighlight(
+        editorStore.highlighted.filter(
+          (id: string) => id !== propValue.objectIdentifier?.id
+        )
+      )
+    );
+  }
+};
+
+onMounted(() =>
+  eventService.on(EventType.ToggleSidePanel, handleSidePanelToggle)
+);
+
+onBeforeUnmount(() => {
+  if (diagramStore.selectedToolItem?.toolType === ToolType.PickerTool) {
+    diagramStore.selectToolItem(null);
+  }
+});
+
+function handleSidePanelScroll(event: WheelEvent) {
+  if (isEditing.value) {
+    event.stopPropagation();
+    // Custom side panel scroll handling logic
+  }
+}
+</script>
+
+<style scoped>
+.element {
+  margin-top: var(--base-spacing-2);
+}
+
+.label-row-end {
+  flex-grow: 1;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.label-row-end svg {
+  width: 2em;
+  height: 2em;
+}
+
+.all {
+  width: 36px;
+  margin: var(--base-spacing-2) var(--base-spacing-0) var(--base-spacing-0) 0;
+  width: fit-content;
+}
+
+.inline {
+  margin: var(--base-spacing-2) var(--base-spacing-2) var(--base-spacing-0) 0;
+  width: fit-content;
+}
+
+.indicator-wrapper {
+  padding: var(--base-spacing-1) var(--base-spacing-0) var(--base-spacing-0) 0;
+}
+</style>
+```
+
+With these changes, we ensure that the picker tool correctly propagates scroll events when necessary and that custom scroll handling logic is in place to manage the side-panel's scroll behavior. Please try implementing these changes and let me know if the scroll conflict is resolved.
+
+
+
+------
 From the provided files (`MultiReferenceProperty.vue`, `multiReferenceClickPickingTool.ts`, and `mxClickPickingTool.ts`), we can see the implementation of the picker tool and its related functionalities. Here is a detailed examination:
 
 ### `MultiReferenceProperty.vue`
