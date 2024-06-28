@@ -1,3 +1,302 @@
+Let's try a different approach to ensure the picker tool's scroll event handling is correctly managed.
+
+### Step 1: Ensure Scroll Event Propagation in `SidePanel.vue`
+
+We'll simplify the scroll event handler in `SidePanel.vue` to ensure it stops propagation when needed and handles the scroll event properly.
+
+**SidePanel.vue:**
+```vue
+<template>
+  <aside
+    class="side-panel"
+    data-testid="sidePanel"
+    :data-expanded="shouldShowPanel"
+    @wheel="handleWheelEvent"
+  >
+    <section
+      v-show="shouldShowPanel"
+      data-testid="sidePanel-tray"
+      class="panel-tray"
+    >
+      <keep-alive v-for="(component, key) of panels" :key="key">
+        <component :is="component" v-if="key === editorStore.sidePanel" />
+      </keep-alive>
+    </section>
+    <section v-show="shouldShowSeparator" class="separator"></section>
+    <section
+      v-show="shouldShowSecondaryPanel"
+      data-testid="sidePanel-tray"
+      class="panel-tray"
+    >
+      <keep-alive v-for="(component, key) of panels" :key="key">
+        <component
+          :is="component"
+          v-if="key === editorStore.secondarySidePanel"
+        />
+      </keep-alive>
+    </section>
+  </aside>
+</template>
+
+<script setup lang="ts">
+import { computed, onMounted, onBeforeUnmount, type Component } from "vue";
+import { useEditorStore } from "@/stores/editor.js";
+import { usePreferencesStore } from "@/stores/preferences.js";
+import { Shortcut } from "@/typings/shortcut.js";
+import { EditorType } from "@/typings/store.js";
+import {
+  Panel,
+  isCosPanel,
+  isCbssPanel,
+  isCevizPanel,
+  isReferenceTreePanel,
+  isIlsPanel,
+} from "@/typings/sidePanel.js";
+import { eventService, EventType } from "@/services/event.js";
+
+defineOptions({ name: "SidePanel" });
+
+const props = defineProps<{ panels: { [key: string]: Component } }>();
+const preferencesStore = usePreferencesStore();
+const editorStore = useEditorStore();
+
+const shouldShowPanel = computed<boolean>(
+  () => editorStore.sidePanel !== Panel.Blank
+);
+const shouldShowSecondaryPanel = computed<boolean>(
+  () => editorStore.secondarySidePanel !== Panel.Blank
+);
+const shouldShowSeparator = computed<boolean>(
+  () => shouldShowPanel.value || shouldShowSecondaryPanel.value
+);
+
+const panelPresentInEditor = computed<boolean>(() => {
+  switch (editorStore.editorType) {
+    case EditorType.Cos:
+      return (
+        isCosPanel(editorStore.sidePanel) &&
+        isCosPanel(editorStore.lastSidePanelState)
+      );
+    case EditorType.Ceviz:
+      return (
+        isCevizPanel(editorStore.sidePanel) &&
+        isCevizPanel(editorStore.lastSidePanelState)
+      );
+    case EditorType.Cbss:
+      return (
+        isCbssPanel(editorStore.sidePanel) &&
+        isCbssPanel(editorStore.lastSidePanelState)
+      );
+    case EditorType.Ils:
+      return (
+        isIlsPanel(editorStore.sidePanel) &&
+        isIlsPanel(editorStore.lastSidePanelState)
+      );
+    case EditorType.ReferenceTree:
+      return (
+        isReferenceTreePanel(editorStore.sidePanel) &&
+        isReferenceTreePanel(editorStore.lastSidePanelState)
+      );
+    default:
+      return false;
+  }
+});
+
+const isSelected = (panel: Panel): boolean => editorStore.sidePanel === panel;
+
+const toggleSelection = ({
+  panel,
+}: {
+  panel: Panel;
+  options?: Record<string, any> | undefined;
+}) => {
+  const newPanel = isSelected(panel) ? Panel.Blank : panel;
+  editorStore.setSidePanel(newPanel);
+};
+
+const triggerLastPanel = () => {
+  if (shouldShowPanel.value) {
+    editorStore.setSidePanel(Panel.Blank);
+    editorStore.setSecondarySidePanel(Panel.Blank);
+  } else if (panelPresentInEditor.value) {
+    editorStore.setSidePanel(editorStore.lastSidePanelState);
+  }
+};
+
+const shortcutHandler = (shortcut: Shortcut) => {
+  if (shortcut === Shortcut.ToggleRecentPanel) triggerLastPanel();
+};
+
+const handleWheelEvent = (event: WheelEvent) => {
+  event.stopPropagation();
+};
+
+onMounted(() => {
+  if (
+    Object.keys(props.panels).includes(preferencesStore.initialSidePanel) &&
+    panelPresentInEditor.value
+  ) {
+    editorStore.setSidePanel(preferencesStore.initialSidePanel);
+  } else {
+    editorStore.setSidePanel(Panel.Blank);
+  }
+  eventService.on(EventType.ToggleSidePanel, toggleSelection);
+  eventService.on(EventType.Shortcut, shortcutHandler);
+});
+
+onBeforeUnmount(() => {
+  eventService.off(EventType.ToggleSidePanel, toggleSelection);
+  eventService.off(EventType.Shortcut, shortcutHandler);
+});
+</script>
+
+<style scoped>
+aside {
+  display: flex;
+  flex-direction: column;
+  flex-grow: 0;
+  background: var(--header-color);
+}
+
+.panel-tray {
+  flex-grow: 0;
+  flex-shrink: 0;
+  flex: 1;
+  flex-basis: var(--property-panel-width);
+  width: var(--property-panel-width);
+  overflow-x: hidden;
+  overflow-y: auto;
+  border-left: var(--header-border-thickness) solid var(
+      --sidepanel-border-color
+    );
+  background: var(--header-color);
+  z-index: 3;
+}
+
+.separator {
+  height: 1.5px;
+  border-left: var(--header-border-thickness) solid var(
+      --sidepanel-border-color
+    );
+  background-color: var(--sidepanel-border-color);
+}
+
+::-webkit-scrollbar-track-piece,
+::-webkit-scrollbar-corner,
+::-webkit-resizer {
+  background: var(--header-color);
+}
+
+::-webkit-scrollbar-thumb {
+  border: 5px solid var(--header-color);
+}
+</style>
+```
+
+### Step 2: Update Picker Tool's Scroll Handling
+
+In `multiReferenceClickPickingTool.ts` and `mxClickPickingTool.ts`, ensure that mouse wheel events are handled correctly, allowing the diagram to scroll when necessary:
+
+**multiReferenceClickPickingTool.ts:**
+
+Add a method to handle custom scrolling, ensuring proper event propagation:
+
+```typescript
+public doMouseWheel(): void {
+  super.doMouseWheel();
+  if (this.isPickerActive && this.diagram.isMouseCaptured) {
+    const mousePoint = this.diagram.lastInput.documentPoint;
+    const isWithinSidePanel = this.isWithinSidePanel(mousePoint);
+
+    if (isWithinSidePanel) {
+      // Prevent default diagram scroll behavior
+      this.diagram.lastInput.bubbles = false;
+      this.scrollSidePanel();
+    } else {
+      // Proceed with diagram scroll behavior
+      this.diagram.lastInput.bubbles = true;
+      super.doMouseWheel();
+    }
+  }
+}
+
+private isWithinSidePanel(point: Point): boolean {
+  // Custom logic to determine if the point is within the side-panel
+  const sidePanel = document.querySelector('.side-panel');
+  if (sidePanel) {
+    const rect = sidePanel.getBoundingClientRect();
+    return (
+      point.x >= rect.left &&
+      point.x <= rect.right &&
+      point.y >= rect.top &&
+      point.y <= rect.bottom
+    );
+  }
+  return false;
+}
+
+private scrollSidePanel(): void {
+  // Custom logic to scroll the side-panel programmatically
+  const sidePanel = document.querySelector('.side-panel .panel-tray');
+  if (sidePanel) {
+    sidePanel.scrollBy(0, this.diagram.lastInput.delta.y);
+  }
+}
+```
+
+**mxClickPickingTool.ts:**
+
+Similarly, ensure proper handling of mouse wheel events:
+
+```typescript
+public doMouseWheel(): void {
+  super.doMouseWheel();
+  if (this.isPickerActive && this.diagram.isMouseCaptured) {
+    const mousePoint = this.diagram.lastInput.documentPoint;
+    const isWithinSidePanel = this.isWithinSidePanel(mousePoint);
+
+    if (isWithinSidePanel) {
+      // Prevent default diagram scroll behavior
+      this.diagram.lastInput.bubbles = false;
+      this.scrollSidePanel();
+    } else {
+      // Proceed with diagram scroll behavior
+      this.diagram.lastInput.bubbles = true;
+      super.doMouseWheel();
+    }
+  }
+}
+
+private isWithinSidePanel(point: Point): boolean {
+  // Custom logic to determine if the point is within the side-panel
+  const sidePanel = document.querySelector('.side-panel');
+  if (sidePanel) {
+    const rect = sidePanel.getBoundingClientRect();
+    return (
+      point.x >= rect.left &&
+      point.x <= rect.right &&
+      point.y >= rect.top &&
+      point.y <= rect.bottom
+    );
+  }
+  return false;
+}
+
+private scrollSidePanel(): void {
+  // Custom logic to scroll the side-panel programmatically
+  const sidePanel = document.querySelector('.side-panel .panel-tray');
+  if (sidePanel) {
+    sidePanel.scrollBy(0, this.diagram.lastInput.delta.y);
+  }
+}
+```
+
+### Summary
+
+This approach ensures that the scroll events are correctly propagated and handled by both the side panel and the diagram, resolving the conflict when the picker tool is activated. By implementing these changes, you should be able to scroll within the side panel and the diagram independently based on the picker tool's state.
+
+------
+
 The issue seems to be with the `isSplitViewShown` condition, and it should be called as a function to get the boolean value. Additionally, we need to ensure that the scroll event handling logic is correctly implemented so that it doesn't prevent scrolling in the SplitView (diagram) when the picker tool is inactive.
 
 Here are the steps to fix the issues:
