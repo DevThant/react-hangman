@@ -1,3 +1,233 @@
+The issue seems to be with the `isSplitViewShown` condition, and it should be called as a function to get the boolean value. Additionally, we need to ensure that the scroll event handling logic is correctly implemented so that it doesn't prevent scrolling in the SplitView (diagram) when the picker tool is inactive.
+
+Here are the steps to fix the issues:
+
+1. **Fix the `isSplitViewShown` condition**:
+   - Ensure `isSplitViewShown` is called as a function in the condition.
+
+2. **Adjust the custom scroll handling in `SidePanel.vue`**:
+   - Ensure the scroll event only stops propagation when the picker tool is active and allows normal scrolling otherwise.
+
+Let's update the relevant parts of the code:
+
+### 1. Fixing `isSplitViewShown` Condition
+
+In `SidePanel.vue`, ensure `isSplitViewShown` is called as a function:
+
+```typescript
+const handleWheelEvent = (event: WheelEvent) => {
+  // Custom logic for handling scrolling in the side panel
+  if (editorStore.isSplitViewShown(SplitView.Positions)) {
+    // Stop event propagation when picker tool is active
+    event.stopPropagation();
+  } else {
+    // Allow normal scrolling behavior when picker tool is not active
+    event.preventDefault();
+  }
+};
+```
+
+### 2. Adjust the Custom Scroll Handling
+
+In `SidePanel.vue`, adjust the custom scroll handling:
+
+```vue
+<template>
+  <aside
+    class="side-panel"
+    data-testid="sidePanel"
+    :data-expanded="shouldShowPanel"
+    @wheel="handleWheelEvent"
+  >
+    <section
+      v-show="shouldShowPanel"
+      data-testid="sidePanel-tray"
+      class="panel-tray"
+    >
+      <keep-alive v-for="(component, key) of panels" :key="key">
+        <component :is="component" v-if="key === editorStore.sidePanel" />
+      </keep-alive>
+    </section>
+    <section v-show="shouldShowSeparator" class="separator"></section>
+    <section
+      v-show="shouldShowSecondaryPanel"
+      data-testid="sidePanel-tray"
+      class="panel-tray"
+    >
+      <keep-alive v-for="(component, key) of panels" :key="key">
+        <component
+          :is="component"
+          v-if="key === editorStore.secondarySidePanel"
+        />
+      </keep-alive>
+    </section>
+  </aside>
+</template>
+
+<script setup lang="ts">
+import { computed, onMounted, onBeforeUnmount, type Component } from "vue";
+import { useEditorStore } from "@/stores/editor.js";
+import { usePreferencesStore } from "@/stores/preferences.js";
+import { Shortcut } from "@/typings/shortcut.js";
+import { EditorType } from "@/typings/store.js";
+import {
+  Panel,
+  isCosPanel,
+  isCbssPanel,
+  isCevizPanel,
+  isReferenceTreePanel,
+  isIlsPanel,
+} from "@/typings/sidePanel.js";
+import { eventService, EventType } from "@/services/event.js";
+
+defineOptions({ name: "SidePanel" });
+
+const props = defineProps<{ panels: { [key: string]: Component } }>();
+const preferencesStore = usePreferencesStore();
+const editorStore = useEditorStore();
+
+const shouldShowPanel = computed<boolean>(
+  () => editorStore.sidePanel !== Panel.Blank
+);
+const shouldShowSecondaryPanel = computed<boolean>(
+  () => editorStore.secondarySidePanel !== Panel.Blank
+);
+const shouldShowSeparator = computed<boolean>(
+  () => shouldShowPanel.value || shouldShowSecondaryPanel.value
+);
+
+const panelPresentInEditor = computed<boolean>(() => {
+  switch (editorStore.editorType) {
+    case EditorType.Cos:
+      return (
+        isCosPanel(editorStore.sidePanel) &&
+        isCosPanel(editorStore.lastSidePanelState)
+      );
+    case EditorType.Ceviz:
+      return (
+        isCevizPanel(editorStore.sidePanel) &&
+        isCevizPanel(editorStore.lastSidePanelState)
+      );
+    case EditorType.Cbss:
+      return (
+        isCbssPanel(editorStore.sidePanel) &&
+        isCbssPanel(editorStore.lastSidePanelState)
+      );
+    case EditorType.Ils:
+      return (
+        isIlsPanel(editorStore.sidePanel) &&
+        isIlsPanel(editorStore.lastSidePanelState)
+      );
+    case EditorType.ReferenceTree:
+      return (
+        isReferenceTreePanel(editorStore.sidePanel) &&
+        isReferenceTreePanel(editorStore.lastSidePanelState)
+      );
+    default:
+      return false;
+  }
+});
+
+const isSelected = (panel: Panel): boolean => editorStore.sidePanel === panel;
+
+const toggleSelection = ({
+  panel,
+}: {
+  panel: Panel;
+  options?: Record<string, any> | undefined;
+}) => {
+  const newPanel = isSelected(panel) ? Panel.Blank : panel;
+  editorStore.setSidePanel(newPanel);
+};
+
+const triggerLastPanel = () => {
+  if (shouldShowPanel.value) {
+    editorStore.setSidePanel(Panel.Blank);
+    editorStore.setSecondarySidePanel(Panel.Blank);
+  } else if (panelPresentInEditor.value) {
+    editorStore.setSidePanel(editorStore.lastSidePanelState);
+  }
+};
+
+const shortcutHandler = (shortcut: Shortcut) => {
+  if (shortcut === Shortcut.ToggleRecentPanel) triggerLastPanel();
+};
+
+const handleWheelEvent = (event: WheelEvent) => {
+  // Custom logic for handling scrolling in the side panel
+  if (editorStore.isSplitViewShown(SplitView.Positions)) {
+    // Stop event propagation when picker tool is active
+    event.stopPropagation();
+  }
+};
+
+onMounted(() => {
+  if (
+    Object.keys(props.panels).includes(preferencesStore.initialSidePanel) &&
+    panelPresentInEditor.value
+  ) {
+    editorStore.setSidePanel(preferencesStore.initialSidePanel);
+  } else {
+    editorStore.setSidePanel(Panel.Blank);
+  }
+  eventService.on(EventType.ToggleSidePanel, toggleSelection);
+  eventService.on(EventType.Shortcut, shortcutHandler);
+});
+
+onBeforeUnmount(() => {
+  eventService.off(EventType.ToggleSidePanel, toggleSelection);
+  eventService.off(EventType.Shortcut, shortcutHandler);
+});
+</script>
+
+<style scoped>
+aside {
+  display: flex;
+  flex-direction: column;
+  flex-grow: 0;
+  background: var(--header-color);
+}
+
+.panel-tray {
+  flex-grow: 0;
+  flex-shrink: 0;
+  flex: 1;
+  flex-basis: var(--property-panel-width);
+  width: var(--property-panel-width);
+  overflow-x: hidden;
+  overflow-y: auto;
+  border-left: var(--header-border-thickness) solid var(
+      --sidepanel-border-color
+    );
+  background: var(--header-color);
+  z-index: 3;
+}
+
+.separator {
+  height: 1.5px;
+  border-left: var(--header-border-thickness) solid var(
+      --sidepanel-border-color
+    );
+  background-color: var(--sidepanel-border-color);
+}
+
+::-webkit-scrollbar-track-piece,
+::-webkit-scrollbar-corner,
+::-webkit-resizer {
+  background: var(--header-color);
+}
+
+::-webkit-scrollbar-thumb {
+  border: 5px solid var(--header-color);
+}
+</style>
+```
+
+This adjustment ensures that the `handleWheelEvent` method checks the result of calling `isSplitViewShown` with the appropriate `SplitView` argument and stops event propagation only if the picker tool is active. This should allow normal scrolling in the `SplitView` (diagram) when the picker tool is not active.
+
+With these changes, the scroll conflict should be resolved, and you should be able to scroll in both the side panel and the SplitView (diagram) appropriately based on the picker tool's state.
+
+-------
 Let's implement the proposed solutions to ensure that scroll events are handled appropriately when the picker tool is active. We will address the problem by:
 
 1. **Checking Event Propagation in the Picker Tool**
