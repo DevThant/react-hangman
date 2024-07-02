@@ -1,3 +1,97 @@
+To implement changes in `Editor.vue` to ensure proper event propagation, you need to modify the event handling methods to ensure they do not prevent events from propagating when the picker tool is active. Here's a solution to update `Editor.vue`:
+
+### Solution Code for `Editor.vue`
+
+```vue
+<template>
+  <!-- Your template code here -->
+</template>
+
+<script setup lang="ts">
+import { ref, onMounted, onBeforeUnmount } from 'vue';
+import { useDiagramStore } from '@/stores/diagram.js';
+import { eventService, EventType } from '@/services/event.js';
+
+// other imports
+
+const diagramStore = useDiagramStore();
+const isPickerToolActive = ref(false);
+
+const handleMouseDown = (event: MouseEvent) => {
+  if (isPickerToolActive.value) {
+    // Ensure the event is not stopped or prevented
+    // Add your picker tool logic here
+  } else {
+    // Default mouse down logic
+  }
+};
+
+const handleMouseMove = (event: MouseEvent) => {
+  if (isPickerToolActive.value) {
+    // Ensure the event is not stopped or prevented
+    // Add your picker tool logic here
+  } else {
+    // Default mouse move logic
+  }
+};
+
+const handleMouseUp = (event: MouseEvent) => {
+  if (isPickerToolActive.value) {
+    // Ensure the event is not stopped or prevented
+    // Add your picker tool logic here
+  } else {
+    // Default mouse up logic
+  }
+};
+
+const handleScroll = (event: WheelEvent) => {
+  if (isPickerToolActive.value) {
+    // Ensure the event is not stopped or prevented
+    // Add your picker tool logic here
+  } else {
+    // Default scroll logic
+  }
+};
+
+const handleToolActivation = () => {
+  isPickerToolActive.value = diagramStore.selectedToolItem?.toolType === 'PickerTool';
+};
+
+onMounted(() => {
+  document.addEventListener('mousedown', handleMouseDown);
+  document.addEventListener('mousemove', handleMouseMove);
+  document.addEventListener('mouseup', handleMouseUp);
+  document.addEventListener('wheel', handleScroll);
+  eventService.on(EventType.ToolSelected, handleToolActivation);
+});
+
+onBeforeUnmount(() => {
+  document.removeEventListener('mousedown', handleMouseDown);
+  document.removeEventListener('mousemove', handleMouseMove);
+  document.removeEventListener('mouseup', handleMouseUp);
+  document.removeEventListener('wheel', handleScroll);
+  eventService.off(EventType.ToolSelected, handleToolActivation);
+});
+</script>
+
+<style scoped>
+/* Your style code here */
+</style>
+```
+
+### Explanation
+1. **Event Listeners**: Attach event listeners to the document for `mousedown`, `mousemove`, `mouseup`, and `wheel` events. These listeners will handle events globally.
+2. **Event Handling**: In each event handler, check if the picker tool is active. If it is, handle the event for the picker tool without stopping or preventing the event, ensuring it can propagate. If the picker tool is not active, handle the event with the default logic.
+3. **Tool Activation**: Use the `handleToolActivation` method to set the `isPickerToolActive` state based on the currently selected tool in the diagram store.
+4. **Lifecycle Hooks**: Use `onMounted` and `onBeforeUnmount` hooks to add and remove event listeners, ensuring they are only active while the component is mounted.
+
+### Next Steps
+1. **Integrate the Solution**: Add the above code to `Editor.vue` in the appropriate sections (template, script, and style).
+2. **Test the Changes**: Verify that the side panel scroll and input functionalities work correctly when the picker tool is active. Ensure no other functionality is broken.
+
+Would you like to proceed with this implementation, or do you need further adjustments or explanations?
+
+-----
 Let's try a different approach to ensure the picker tool's scroll event handling is correctly managed.
 
 ### Step 1: Ensure Scroll Event Propagation in `SidePanel.vue`
