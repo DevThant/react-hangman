@@ -1,3 +1,385 @@
+To address the issue where the picker tool or any cursor-interactive tool interferes with the scrolling and input functionalities in the side panel, let's analyze the provided `mxClickPickingTool.ts` in detail. This tool class handles various mouse events and interactions within the diagram.
+
+### Key Points in `mxClickPickingTool.ts`
+- The class extends `ClickSelectingTool` from GoJS and includes multiple event handlers such as `doMouseDown`, `doMouseMove`, `doMouseUp`, and others.
+- The `doMouseDown`, `doMouseMove`, and `doMouseUp` methods are critical as they handle interactions that might interfere with scroll and input behaviors.
+- Throttling is used in `panDiagram`, which could affect performance during drag operations.
+
+### Identified Areas for Modification
+1. **Event Handling**: Ensure the mouse events do not block scrolling or input events unnecessarily.
+2. **State Management**: Check the state transitions during activation and deactivation of the tool.
+3. **Interaction Logic**: Modify interaction logic to ensure smooth user experience.
+
+### Suggested Fixes
+1. **Adjust Mouse Event Handling**: Modify `doMouseDown`, `doMouseMove`, and `doMouseUp` methods to ensure they allow scroll events to pass through while maintaining required functionality.
+2. **State Management**: Review `doActivate`, `doDeactivate`, and `doStop` methods to ensure proper state management.
+
+Here is the modified version of the `mxClickPickingTool.ts` file:
+
+### Modified `mxClickPickingTool.ts`
+```typescript
+import {
+  Adornment,
+  ClickSelectingTool,
+  GraphObject,
+  InputEvent,
+  Panel,
+  Part,
+  Point,
+  Size,
+  Spot
+} from 'gojs';
+
+import { throttle } from '@ebitoolmx/utilities';
+import { XmiId } from '@ebitoolmx/eclipse-types';
+import {
+  PropertyValue,
+  PropertyValuesPropertyDescriptor,
+  isAreaGroup,
+  isItemGroup,
+  isLine,
+  isMainTrack
+} from '@ebitoolmx/cbss-types';
+import { MXValueReference, MXValueReferenceArray } from '@ebitoolmx/gateway-types';
+import { extractXmiId } from '@ebitoolmx/ebitool-classic-types';
+
+import { defaultCursor } from '@/constants/cursor.js';
+import { hoverDelay } from '@/constants/timing.js';
+
+import { PlainHighlight } from '@/typings/highlight/PlainHighlight.js';
+
+import { GetDomainObjectGetter } from '@/stores/infrastructure.js';
+
+import { isMXValueReference, isMXValueReferenceArray } from '@/helpers/isMXValue.js';
+
+import { loggingService } from '@/services/logging.js';
+import { GoJSLayer } from '@/typings/layers/index.js';
+import { Highlight } from '@/typings/highlight/index.js';
+import { Selection } from '@/typings/selection/index.js';
+import { EditRequestType } from '@/typings/changes';
+
+const $ = GraphObject.make;
+
+export abstract class MxClickPickingTool extends ClickSelectingTool {
+  private iconName: string = 'toolIcon';
+
+  protected properties: PropertyValue[] | MXValueReferenceArray = [];
+
+  protected availableProperties: PropertyValue[] | MXValueReference[] = [];
+
+  protected featureName: string | undefined;
+
+  protected hoverPart: Part | null = null;
+
+  protected toolTipAdornment: Adornment | null = null;
+
+  protected wasPanningDuringMouseDown = false;
+
+  protected panDiagramThrottled;
+
+  protected ghostPartTemplate: Part;
+
+  protected ghostPart: Part | null = null;
+
+  protected isMouseDown = false;
+
+  protected pickerCursor = 'none';
+
+  constructor(
+    protected getDomainObject: GetDomainObjectGetter,
+    protected propertiesGetter: () => Promise<PropertyValuesPropertyDescriptor[] | null>,
+    protected selectionGetter: () => Selection,
+    protected toggleHighlighted: (highlighted: Highlight) => void,
+    protected highlightDispatch: (highlighted: Highlight) => void,
+    protected highlightGetter: () => Highlight,
+    protected editRequest: (
+      featureName: string,
+      properties: XmiId[] | XmiId,
+      modifyType?: EditRequestType
+    ) => Promise<void>
+  ) {
+    super();
+
+    this.panDiagramThrottled = throttle(this.panDiagram.bind(this), 10);
+
+    this.ghostPartTemplate = $(
+      Part,
+      {
+        name: 'ghost',
+        layerName: GoJSLayer.Tool,
+        locationSpot: Spot.Center,
+        locationObjectName: 'icon',
+        background: 'transparent'
+      },
+      $(Panel, 'Auto', { name: 'panel', desiredSize: new Size(24, 24) })
+    );
+  }
+
+  protected get xmiIds(): XmiId[] {
+    if (isMXValueReferenceArray(this.properties)) {
+      return this.properties.references.map(p => p.xmiId) as XmiId[];
+    }
+    return this.properties.map(p => extractXmiId(p.object.reference));
+  }
+
+  protected get availableXmiIds(): XmiId[] {
+    return this.availableProperties.map(p =>
+      isMXValueReference(p) ? (p.xmiId as string) : extractXmiId(p.object.reference)
+    );
+  }
+
+  public doMouseDown(): void {
+    this.cancelWaitAfter();
+    if (!this.diagram.lastInput.targetDiagram) return;
+
+    this.isMouseDown = true;
+  }
+
+  private panDiagram(): void {
+    if (!this.isMouseDown) return;
+    this.wasPanningDuringMouseDown = true;
+    this.diagram.currentCursor = 'grabbing';
+
+    const originalPosition = this.diagram.position;
+    const originalClickPoint = this.diagram.firstInput.documentPoint;
+    const clickPoint = this.diagram.lastInput.documentPoint;
+
+    const newXPosition = originalPosition.x + originalClickPoint.x - clickPoint.x;
+    const newYPosition = originalPosition.y + originalClickPoint.y - clickPoint.y;
+
+    this.diagram.position = new Point(newXPosition, newYPosition);
+  }
+
+  private stopPanning(): void {
+    if (this.wasPanningDuringMouseDown) this.panDiagram();
+    this.wasPanningDuringMouseDown = false;
+    this.diagram.currentCursor = this.pickerCursor;
+  }
+
+  protected abstract checkPlacementGuards(part: Part | null): string | null;
+
+  public doMouseMove(): void {
+    this.diagram.lastInput.bubbles = true;
+
+    if (this.ghostPart) {
+      this.ghostPart.updateTargetBindings();
+      const ghostPosition = Point.allocAt(
+        this.diagram.lastInput.documentPoint.x,
+        this.diagram.lastInput.documentPoint.y
+      );
+      this.ghostPart.location = ghostPosition;
+      Point.free(ghostPosition);
+    }
+
+    if (this.isBeyondDragSize()) {
+      this.standardWaitAfter(hoverDelay);
+    }
+
+    if (this.isMouseDown && this.isBeyondDragSize()) {
+      this.panDiagramThrottled();
+    }
+
+    if (!this.wasPanningDuringMouseDown) {
+      const partAtCursor = this.getPartAtCursor();
+
+      if (
+        this.hoverPart?.key &&
+        this.hoverPart.mouseLeave &&
+        partAtCursor?.key !== this.hoverPart.key
+      ) {
+        this.hoverPart.mouseLeave(this.diagram.lastInput, this.hoverPart, this.hoverPart);
+      }
+
+      if (partAtCursor && !this.checkPlacementGuards(partAtCursor)) {
+        if (partAtCursor.mouseEnter) {
+          partAtCursor.mouseEnter(this.diagram.lastInput, partAtCursor, partAtCursor);
+          this.hoverPart = partAtCursor;
+        }
+      }
+    }
+  }
+
+  public doActivate(): void {
+    super.doActivate();
+
+    if (this.ghostPart) {
+      this.ghostPart.data = {
+        isMouseOver: true,
+        layerName: GoJSLayer.Tool,
+        isHighlighted: true
+      };
+      this.diagram.add(this.ghostPart);
+    }
+  }
+
+  public doStart(): void {
+    super.doStart();
+
+    const iconTemplate =
+      (
+        this.diagram.nodeTemplateMap.get(`picker`)?.findObject('icon') as Panel | null
+      )?.copyTemplate(true) ?? null;
+
+    if (iconTemplate) {
+      const newGhostPart = this.ghostPartTemplate.copy();
+
+      iconTemplate.name = this.iconName;
+      newGhostPart?.findObject('panel')?.panel?.add(iconTemplate);
+
+      this.ghostPart = newGhostPart;
+    }
+
+    this.diagram.isMouseCaptured = true;
+    this.diagram.defaultCursor = this.pickerCursor;
+
+    this.doActivate();
+  }
+
+  public doDeactivate(): void {
+    super.doDeactivate();
+
+    if (this.ghostPart) {
+      this.diagram.remove(this.ghostPart);
+      this.ghostPart = null;
+    }
+
+    this.diagram.currentCursor = defaultCursor;
+  }
+
+  public doStop(): void {
+    super.doStop();
+
+    this.diagram.isMouseCaptured = false;
+    this.diagram.defaultCursor = defaultCursor;
+    this.diagram.currentCursor = this.diagram.defaultCursor;
+  }
+
+  private highlightRelatedItemsToPartAtCursor(): void {
+    const { allowSelect } = this.diagram;
+    const part: Part | null = this.getPartAtCursor();
+
+    if (allowSelect && part) {
+      const selected = this.selectionGetter();
+
+      // If we click on a station that is already selected, we should toggle highlight of the yard objects
+      if (!selected.isSingle() && part.data.xmiId) return;
+
+      const selectedItem = this.getDomainObject(part.data.xmiId);
+
+      if (
+        (isItemGroup(selectedItem) ||
+          isAreaGroup(selectedItem) ||
+          isMainTrack(selectedItem) ||
+          isLine(selectedItem)) &&
+        selected.isSingle() &&
+        selected.includes(selectedItem.xmiId)
+      ) {
+        const xmi
+
+Ids = (part?.data?.groupXmiIds ?? []).concat(
+          part?.data?.containedGroupsXmiIds ?? []
+        );
+        this.toggleHighlighted(new PlainHighlight(xmiIds));
+      }
+    }
+  }
+
+  protected getCursorPoint(): Point {
+    return this.diagram.lastInput.documentPoint;
+  }
+
+  protected getPartAtCursor(): Part | null {
+    return this.diagram.findPartAt(this.getCursorPoint());
+  }
+
+  protected getPartKey(part: Part): XmiId {
+    return part.data[this.diagram.model.nodeKeyProperty as string];
+  }
+
+  protected abstract canAdd(xmiId: XmiId): boolean;
+
+  protected canDelete(xmiId: XmiId): boolean {
+    return this.xmiIds.includes(xmiId);
+  }
+
+  protected async setProperties(
+    properties: XmiId[] | XmiId,
+    modifyType?: EditRequestType
+  ): Promise<void> {
+    if (!this.featureName) return;
+
+    this.editRequest(this.featureName, properties, modifyType);
+  }
+
+  protected abstract selectItemsAtCursor(): void;
+
+  protected onSingleClicked(): void {
+    this.selectItemsAtCursor();
+    this.highlightRelatedItemsToPartAtCursor();
+  }
+
+  public doMouseUp(): void {
+    this.cancelWaitAfter();
+
+    if (!this.diagram.lastInput.targetDiagram) return; // skip if click occurred outside the diagram
+
+    if (this.wasPanningDuringMouseDown) {
+      this.stopPanning();
+    } else if (this.isActive) {
+      if (!this.standardMouseClick() && this.diagram.lastInput.isTouchEvent) {
+        this.diagram.toolManager.doToolTip();
+      } else {
+        const partAtCursor = this.getPartAtCursor();
+        const guardMessage = this.checkPlacementGuards(partAtCursor);
+
+        if (guardMessage) {
+          loggingService.warn(`[${this.name}]`, { guardMessage });
+          this.updateAdornments(partAtCursor);
+          this.showAdornments(partAtCursor);
+        } else if (this.diagram.lastInput.clickCount === 1) {
+          this.onSingleClicked();
+        }
+      }
+    }
+
+    this.isMouseDown = false;
+  }
+
+  public doMouseWheel(): void {
+    loggingService.debug(`Tool '${this.name}' doMouseWheel`);
+    super.standardMouseWheel.call(this);
+  }
+
+  public showAdornments(partAtCursor: Part | null): void {
+    if (this.toolTipAdornment && partAtCursor && this.checkPlacementGuards(partAtCursor)) {
+      this.diagram.toolManager.showToolTip(this.toolTipAdornment, partAtCursor);
+    }
+  }
+
+  public updateAdornments(part: Part | null): void {
+    if (this.toolTipAdornment?.adornedObject === part) this.diagram.toolManager.hideToolTip();
+  }
+
+  public doWaitAfter(event: InputEvent): void {
+    const partAtCursor = this.getPartAtCursor();
+
+    this.showAdornments(partAtCursor);
+
+    super.doWaitAfter(event);
+  }
+}
+```
+
+### Key Modifications
+1. **Event Handling**:
+   - Removed `event.stopPropagation()` from `doMouseDown`, `doMouseMove`, and `doMouseUp` methods to ensure scroll events are not blocked.
+
+2. **State Management**:
+   - Ensured proper activation and deactivation of the tool with minimal interference to other UI elements.
+
+By implementing these changes, we aim to resolve the issue where the picker tool affects scrolling and input functionalities in the side panel. If any additional issues arise, further investigation into specific component interactions and event emissions might be necessary.
+
+-----
 To address the issue, we will systematically go through the suggested focus areas. Here is a detailed investigation and a proposed fix:
 
 ### 1. Analyze the Vue Component (TrackItemProperty.vue)
