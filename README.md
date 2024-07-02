@@ -1,3 +1,74 @@
+### SplitView
+```typescript
+const drag = (event: MouseEvent) => {
+  const splitViewBounds = splitView.value?.getBoundingClientRect();
+  const tabBounds = tabs.value?.getBoundingClientRect();
+
+  const mousePosY = event.clientY;
+
+  let splitViewTargetHeight: number;
+  if (splitViewBounds && tabBounds) {
+    const offsetMouseYPos = mousePosY - tabBounds.height - splitViewBounds.top;
+    splitViewTargetHeight = (offsetMouseYPos / splitViewBounds.height) * 100;
+  } else {
+    const viewportHeight = window.innerHeight;
+    splitViewTargetHeight = (mousePosY / viewportHeight) * 100;
+  }
+
+  const boundSplitViewHeight = Math.min(Math.max(splitViewTargetHeight, 10), 90);
+  const formattedSplitViewHeight = `${boundSplitViewHeight.toFixed(3)}%`;
+
+  const diagram = document.getElementById('diagram');
+  if (!diagram) return;
+
+  // Ensure this does not interfere with SidePanel events
+  if (event.target && (event.target as HTMLElement).closest('.side-panel')) {
+    return;
+  }
+
+  diagram.style.height = formattedSplitViewHeight;
+  preferencesStore.initialSplitViewSize = formattedSplitViewHeight;
+};
+
+
+...
+
+onMounted(() => {
+  const diagram = document.getElementById('diagram');
+  if (!diagram) return;
+  diagram.style.height = preferencesStore.initialSplitViewSize;
+
+  // Focus management
+  diagram.addEventListener('focus', (event) => {
+    const target = event.target as HTMLElement;
+    if (target && target.closest('.side-panel')) {
+      event.stopPropagation();
+    }
+  }, true);
+});
+
+```
+### PickerTool
+```typescript
+ doMouseDown(event: MouseEvent) {
+  super.doMouseDown(event);
+  // Ensure event.target is not null and cast it to HTMLElement to use closest
+  if (event.target && (event.target as HTMLElement).closest('.side-panel')) {
+    event.stopPropagation();
+  }
+  this.eventBus.emit('mxClickToolActivated');
+}
+
+doMouseUp(event: MouseEvent) {
+  super.doMouseUp(event);
+  // Ensure event.target is not null and cast it to HTMLElement to use closest
+  if (event.target && (event.target as HTMLElement).closest('.side-panel')) {
+    event.stopPropagation();
+  }
+  this.eventBus.emit('mxClickToolDeactivated');
+}  
+```
+-----
 Summary of Potential Issues and Solutions:
 Event Propagation:
 
